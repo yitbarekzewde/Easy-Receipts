@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(90deg, #0ace14, #cdfa04, #f72702, rgb(90, 172, 101));
+            background-size: 400% 400%;
+            animation: gradientAnimation 15s ease infinite;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            box-shadow: inset -10px 30px 60px rgba(39, 4, 240, 0.1);
+        }
+
+        @keyframes gradientAnimation {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        .left-navigation-arrow {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            cursor: pointer;
+            color: #cdfa06ef;
+        }
+
+        h1 {
+            color: #333;
+            font-weight: bold;
+        }
+
+        label {
+            display: flex;
+            margin-bottom: 2px;
+            color: #0c67cf;
+            font-weight: bold;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: large;
+        }
+
+        .login-form {
+            background: rgba(235, 238, 236, 0.9);
+            padding: 50px;
+            border-radius: 10px;
+            border-start-start-radius: 70px;
+            border-bottom-right-radius: 70px;
+            width: 320px;
+            text-align: center;
+            box-shadow: inset 0 0 100px rgba(7, 31, 243, 0.925);
+        }
+
+        .login-form h2 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .login-form input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+
+        .login-form input:focus {
+            border-color: #007bff;
+            outline: none;
+        }
+        .password-field { position: relative; }
+        .password-field input { padding-right: 42px; }
+        .password-toggle { position: absolute; top: 50%; right: 8px; transform: translateY(-50%); width: 32px !important; height: 32px; margin: 0 !important; padding: 5px !important; background: transparent !important; color: #52606d !important; font-size: 16px !important; }
+        .password-toggle:hover { color: #007bff !important; }
+        .password-toggle svg { display: block; width: 20px; height: 20px; }
+
+        .login-form button {
+            width: 100%;
+            padding: 10px;
+            background: linear-gradient(90deg, #0ace14, #cdfa04, #f72702, rgb(30, 248, 40));
+            color: white;
+            font-weight: bold;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 19px;
+            margin-top: 15px;
+        }
+
+        .login-form button:hover {
+            background: #5a6fd8;
+        }
+
+        .login-form button:disabled {
+            cursor: wait;
+            opacity: 0.85;
+        }
+
+        .loading-spinner {
+            display: none;
+            width: 18px;
+            height: 18px;
+            margin-right: 8px;
+            vertical-align: -4px;
+            border: 3px solid #f72702;
+            border-top-color: #0ace14;
+            border-right-color: #cdfa04;
+            border-radius: 50%;
+            animation: tricolorSpin 0.8s linear infinite;
+        }
+
+        .login-form button.loading .loading-spinner {
+            display: inline-block;
+        }
+
+        @keyframes tricolorSpin {
+            to { transform: rotate(360deg); }
+        }
+
+        .switch-link {
+            display: block;
+            margin-top: 15px;
+            color: #0c67cf;
+            font-weight: bold;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        .switch-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+<script src="notification.js"></script>
+</head>
+<body>
+    <i class="left-navigation-arrow" onclick="window.location.href='login.html'" title="Back to Login">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-left">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+        </svg>
+    </i>
+
+    <div class="login-form">
+        <h1>Create Account</h1>
+        <h2>Register</h2>
+        <form id="reg-form" action="#" method="post">
+            <label for="username">User Name</label>
+            <input type="text" id="username" name="username" placeholder="Username" required>
+
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" placeholder="you@example.com" required>
+
+            <label for="password">Password</label>
+            <div class="password-field">
+                <input type="password" id="password" name="password" placeholder="Password" required>
+                <button class="password-toggle" type="button" aria-label="Show password" aria-pressed="false">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"></path><circle cx="12" cy="12" r="2.5"></circle></svg>
+                </button>
+            </div>
+
+            <label for="confirm_password">Confirm Password</label>
+            <div class="password-field">
+                <input type="password" id="confirm_password" name="confirm_password" placeholder="Confirm Password" required>
+                <button class="password-toggle" type="button" aria-label="Show password" aria-pressed="false">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"></path><circle cx="12" cy="12" r="2.5"></circle></svg>
+                </button>
+            </div>
+
+            <button type="submit"><span class="loading-spinner" aria-hidden="true"></span><span class="submit-label">Create Account</span></button>
+        </form>
+        <a class="switch-link" onclick="window.location.href='login.html'">Already have an account? Login</a>
+    </div>
+
+    <script>
+        document.querySelectorAll('.password-toggle').forEach(function (toggle) {
+            toggle.addEventListener('click', function () {
+                const input = toggle.parentElement.querySelector('input');
+                const isVisible = input.type === 'text';
+                input.type = isVisible ? 'password' : 'text';
+                toggle.setAttribute('aria-label', isVisible ? 'Show password' : 'Hide password');
+                toggle.setAttribute('aria-pressed', String(!isVisible));
+            });
+        });
+    </script>
+    <script type="module">
+        import { auth } from './firebase-config.js';
+        import { createUserWithEmailAndPassword, updateProfile, signOut } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js';
+
+        const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyvSKWrf9RYexa6nySHIQwr2JP-rtqk4k_vWCAJh6GumAPHnZEQLDosVpM7FbDxgq_KYw/exec';
+        let registrationInProgress = false;
+
+        document.getElementById('reg-form').addEventListener('submit', function (event) {
+            event.preventDefault(); // Stop the form from refreshing the page
+            if (registrationInProgress) return;
+
+            var username = document.getElementById('username').value.trim();
+            var email = document.getElementById('email').value.trim();
+            var password = document.getElementById('password').value;
+            var confirmPassword = document.getElementById('confirm_password').value;
+
+            // 1. Basic Validation
+            if (username === '' || email === '' || password === '') {
+                alert('Please fill in all fields.');
+                return;
+            }
+
+            // 2. Password Match Validation
+            if (password !== confirmPassword) {
+                alert('Passwords do not match!');
+                return;
+            }
+
+            createAccount(username, email, password);
+        });
+
+        async function createAccount(username, email, password) {
+            var submitButton = document.querySelector('#reg-form button[type="submit"]');
+            registrationInProgress = true;
+            submitButton.disabled = true;
+            submitButton.classList.add('loading');
+            submitButton.querySelector('.submit-label').textContent = 'Creating account...';
+            try {
+                var credential = await createUserWithEmailAndPassword(auth, email, password);
+                await updateProfile(credential.user, { displayName: username });
+                var otpResult = await sendOTP(email);
+                if (!otpResult || !otpResult.success) {
+                    throw new Error(otpResult && otpResult.message ? otpResult.message : 'Could not send verification code.');
+                }
+                await signOut(auth);
+                localStorage.setItem('pendingVerificationEmail', email);
+                logActivity(username, 'Registered', 'Verification email sent to ' + email);
+                alert('Account created. Check your email for the verification code.');
+                window.location.href = 'email-verification.html';
+            } catch (error) {
+                alert(getAuthErrorMessage(error));
+                registrationInProgress = false;
+                submitButton.disabled = false;
+                submitButton.classList.remove('loading');
+                submitButton.querySelector('.submit-label').textContent = 'Create Account';
+            }
+        }
+
+        async function sendOTP(email) {
+            var response;
+            try {
+                response = await fetch(APPS_SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify({ action: 'sendOTP', email: email })
+                });
+            } catch (error) {
+                throw new Error('Could not reach the verification service. Please try again later.');
+            }
+            if (!response.ok) throw new Error('The verification service is unavailable. Please try again later.');
+            try { return await response.json(); }
+            catch (error) { throw new Error('The verification service returned an invalid response. Please try again later.'); }
+        }
+
+        function getAuthErrorMessage(error) {
+            if (error.code === 'auth/email-already-in-use') return 'An account with that email already exists.';
+            if (error.code === 'auth/weak-password') return 'Password must be at least 6 characters.';
+            if (error.code === 'auth/invalid-email') return 'Please enter a valid email address.';
+            if (error.message) return error.message;
+            return 'Could not create the account. Please try again later.';
+        }
+
+        function logActivity(username, action, detail) {
+            var log = JSON.parse(localStorage.getItem('activityLog')) || [];
+            log.push({ username: username, action: action, detail: detail || '', timestamp: new Date().toISOString() });
+            if (log.length > 1000) log = log.slice(log.length - 1000);
+            localStorage.setItem('activityLog', JSON.stringify(log));
+        }
+    </script>
+</body>
+</html>

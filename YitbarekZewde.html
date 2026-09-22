@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Yitbarek Zewde</title>
+    <!-- Include EmailJS SDK -->
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+    <!-- Include Font Awesome for Footer Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <img src="YitbarekZewde.jpg" alt="Yitbarek Zewde" style="display:none;" onerror="this.style.display='none';" />
+    <link rel="icon" href="YitbarekZewde.jpg" type="image/x-icon" />
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            max-width: 400px;
+            width: 100%;
+            text-align: center;
+        }
+
+        .profile-image {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            font-size: 50px;
+            color: white;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .profile-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .developer-name {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .contact-section {
+            margin-top: 30px;
+            text-align: left;
+        }
+
+        .contact-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+
+        .contact-item:hover {
+            background: #ededed;
+        }
+
+        .contact-icon {
+            font-size: 20px;
+            margin-right: 15px;
+            color: #667eea;
+        }
+
+        .contact-info {
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+        }
+
+        .contact-label {
+            font-size: 12px;
+            color: #999;
+            text-transform: uppercase;
+        }
+
+        .contact-value {
+            font-size: 14px;
+            color: #333;
+            font-weight: 500;
+        }
+
+        /* --- Dynamic Email Panel --- */
+        .email-panel {
+            display: none;
+            margin-top: 10px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 5px;
+            border: 1px solid #e0e0e0;
+            margin-bottom: 15px;
+        }
+
+        .email-panel input[type="email"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+
+        .email-panel textarea {
+            width: 100%;
+            height: 80px;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            resize: none;
+            font-family: inherit;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+
+        .email-panel button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            width: 100%;
+        }
+
+        .email-panel button:hover {
+            background: #5a6fd6;
+        }
+
+        /* --- Custom Options Modal --- */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            max-width: 320px;
+            width: 90%;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .modal-title {
+            font-size: 18px;
+            margin-bottom: 15px;
+            color: #333;
+            font-weight: 600;
+        }
+
+        .option-btn {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 10px;
+            border: 1px solid #e0e0e0;
+            border-radius: 5px;
+            background: #fdfdfd;
+            text-decoration: none;
+            color: #333;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .option-btn:hover {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: #999;
+            margin-top: 10px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .close-btn:hover {
+            color: #333;
+        }
+
+        /* --- Footer Link Styles --- */
+        .followme h1 {
+            font-size: 14px;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .followus-link {
+            font-size: 18px;
+            color: #e2e8f0;
+            /* Soft contrast against the gradient body background */
+            margin: 0 8px;
+            transition: color 0.2s ease;
+            display: inline-block;
+        }
+
+        .followus-link:hover {
+            color: #a3b8ff;
+        }
+    </style>
+<script src="notification.js"></script>
+</head>
+
+<body>
+    <div class="nevigation-bar" style="position: absolute; top: 10px; left: 10px; margin-top: 1px;">
+        <a href="index.html" class="nav-link">Back to Home</a>
+    </div>
+
+    <div class="container">
+        <div class="profile-image" id="profileContainer">
+            <img src="YitbarekZewde.jpg" alt="Yitbarek Zewde" onerror="this.style.display='none';" />
+            <span id="emojiFallback" style="position: absolute; display: none;">👨‍💻</span>
+        </div>
+        <div class="developer-name">Yitbarek Zewde</div>
+
+        <div class="contact-section">
+            <!-- Email Row -->
+            <div class="contact-item" id="emailItem">
+                <div class="contact-icon">✉️</div>
+                <div class="contact-info">
+                    <span class="contact-label">Email</span>
+                    <span class="contact-value">yitbarek.etc@gmail.com</span>
+                </div>
+            </div>
+
+            <!-- Collapsible Textarea Area with Sender Tracking -->
+            <div class="email-panel" id="emailPanel">
+                <input type="email" id="senderEmail" placeholder="Your Email Address" required />
+                <textarea id="emailMessage" placeholder="Type your message here..." required></textarea>
+                <button id="sendEmailBtn">Send Message</button>
+            </div>
+
+            <!-- Phone Row -->
+            <div class="contact-item" id="phoneItem">
+                <div class="contact-icon">📱</div>
+                <div class="contact-info">
+                    <span class="contact-label">Phone Number</span>
+                    <span class="contact-value">+27662775405</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Added Footer Element outside the container to fit nicely over the background -->
+    <footer style="text-align: center; margin-top: 20px; font-size: 12px; color: #f0e2e2;">
+        <div class="followme">
+            <h1>Follow Me On Social Media</h1>
+            <a href="https://www.youtube.com/@Yitbarek_Zewde" target="_blank" rel="noopener"
+                title="Follow us on YouTube" class="followus-link"><i class="fab fa-youtube"></i></a>
+            <a href="https://www.facebook.com/YitbarekZewde.co" target="_blank" rel="noopener"
+                title="Follow us on Facebook" class="followus-link"><i class="fab fa-facebook"></i></a>
+            <a href="https://www.instagram.com/yitbarekzewde1/" target="_blank" rel="noopener"
+                title="Follow us on Instagram" class="followus-link"><i class="fab fa-instagram"></i></a>
+            <a href="https://www.linkedin.com/in/yitbarek-zewde-1a0b3b1b6/" target="_blank" rel="noopener"
+                title="Follow us on LinkedIn" class="followus-link"><i class="fab fa-linkedin"></i></a>
+            <a href="https://twitter.com/YitbarekZewdeYZ" target="_blank" rel="noopener" title="Follow us on Twitter"
+                class="followus-link"><i class="fab fa-twitter"></i></a>
+        </div>
+        <div style="margin-top: 8px;">&copy; 2026 Yitbarek Zewde. All rights reserved.</div>
+    </footer>
+
+    <!-- Phone Action Modal -->
+    <div class="modal-overlay" id="phoneModal">
+        <div class="modal-content">
+            <div class="modal-title">Contact Method</div>
+            <a href="tel:+27662775405" class="option-btn">📞 Direct Call</a>
+            <a href="https://wa.me/27662775405" target="_blank" rel="noopener" class="option-btn">💬 WhatsApp</a>
+            <a href="https://t.me/+27662775405" target="_blank" rel="noopener" class="option-btn">✈️ Telegram</a>
+            <a href="https://duo.google.com/about/" target="_blank" rel="noopener" class="option-btn">📹 Google Duo</a>
+            <button class="close-btn" id="closeModalBtn">Cancel</button>
+        </div>
+    </div>
+
+    <script>
+        // ----- EmailJS Configuration -----
+        const SERVICE_ID = "service_2kca2tm";
+        const TEMPLATE_ID = "template_bk6mitp";
+        const PUBLIC_KEY = "4SOcrHZJ1yHxQiXjQ";
+
+        // Initialize EmailJS
+        emailjs.init(PUBLIC_KEY);
+
+        // --- Profile Image Fallback Logic ---
+        const img = document.querySelector('.profile-image img');
+        const fallback = document.getElementById('emojiFallback');
+        img.onload = function () { fallback.style.display = 'none'; };
+        img.onerror = function () { this.style.display = 'none'; fallback.style.display = 'block'; };
+
+        // --- Email Panel Interaction Logic ---
+        const emailItem = document.getElementById('emailItem');
+        const emailPanel = document.getElementById('emailPanel');
+        const sendEmailBtn = document.getElementById('sendEmailBtn');
+        const senderEmail = document.getElementById('senderEmail');
+        const emailMessage = document.getElementById('emailMessage');
+
+        emailItem.addEventListener('click', () => {
+            if (emailPanel.style.display === 'block') {
+                emailPanel.style.display = 'none';
+            } else {
+                emailPanel.style.display = 'block';
+                senderEmail.focus();
+            }
+        });
+
+        sendEmailBtn.addEventListener('click', () => {
+            const fromEmail = senderEmail.value.trim();
+            const messageText = emailMessage.value.trim();
+
+            if (!fromEmail || !messageText) {
+                alert('Please fill out both your email address and message.');
+                return;
+            }
+
+            sendEmailBtn.innerText = 'Sending...';
+            sendEmailBtn.disabled = true;
+
+            const templateParams = {
+                from_email: fromEmail,
+                message: messageText,
+                to_email: 'yitbarek.etc@gmail.com'
+            };
+
+            emailjs.send(SERVICE_ID, TEMPLATE_ID, templateParams)
+                .then(() => {
+                    alert('Email sent successfully!');
+                    senderEmail.value = '';
+                    emailMessage.value = '';
+                    emailPanel.style.display = 'none';
+                })
+                .catch((error) => {
+                    alert('Failed to send email. Please try again.');
+                    console.error('EmailJS Error:', error);
+                })
+                .finally(() => {
+                    sendEmailBtn.innerText = 'Send Message';
+                    sendEmailBtn.disabled = false;
+                });
+        });
+
+        // --- Phone Modal Controller Logic ---
+        const phoneItem = document.getElementById('phoneItem');
+        const phoneModal = document.getElementById('phoneModal');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+
+        phoneItem.addEventListener('click', () => { phoneModal.style.display = 'flex'; });
+        closeModalBtn.addEventListener('click', () => { phoneModal.style.display = 'none'; });
+        window.addEventListener('click', (e) => { if (e.target === phoneModal) phoneModal.style.display = 'none'; });
+    </script>
+</body>
+
+</html>

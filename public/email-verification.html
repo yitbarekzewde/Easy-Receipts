@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify Email</title>
+    <style>
+        :root { color-scheme: light; font-family: Arial, sans-serif; }
+        body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #eef4f1; color: #17352d; }
+        .card { width: min(420px, calc(100% - 40px)); padding: 32px; background: #fff; border: 1px solid #d6e2dc; border-radius: 12px; box-shadow: 0 14px 34px rgba(23, 53, 45, .12); }
+        h1 { margin-top: 0; }
+        p { line-height: 1.5; color: #52645e; }
+        label { display: block; margin: 18px 0 6px; font-weight: 700; }
+        input, button { width: 100%; box-sizing: border-box; padding: 12px; border-radius: 7px; font: inherit; }
+        input { border: 1px solid #b8c9c1; }
+        button { margin-top: 16px; border: 0; background: #176b52; color: #fff; font-weight: 700; cursor: pointer; }
+        button:disabled { opacity: .6; cursor: wait; }
+        .secondary { background: transparent; color: #176b52; border: 1px solid #176b52; }
+        #status { min-height: 24px; margin-top: 16px; font-weight: 700; }
+        .error { color: #a33a31; }
+        .success { color: #176b52; }
+    </style>
+<script src="notification.js"></script>
+</head>
+<body>
+    <main class="card">
+        <h1>Verify your email</h1>
+        <p>Enter the one-time code sent to your email address before signing in.</p>
+        <form id="verification-form">
+            <label for="email">Email address</label>
+            <input id="email" type="email" autocomplete="email" required>
+            <label for="otp">Verification code</label>
+            <input id="otp" inputmode="numeric" autocomplete="one-time-code" minlength="4" required>
+            <button id="verify-button" type="submit">Verify email</button>
+        </form>
+        <button id="resend-button" class="secondary" type="button">Resend code</button>
+        <div id="status" aria-live="polite"></div>
+        <p><a href="login.html">Back to login</a></p>
+    </main>
+    <script>
+        const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyvSKWrf9RYexa6nySHIQwr2JP-rtqk4k_vWCAJh6GumAPHnZEQLDosVpM7FbDxgq_KYw/exec';
+        const emailInput = document.getElementById('email');
+        const otpInput = document.getElementById('otp');
+        const status = document.getElementById('status');
+        const pendingEmail = localStorage.getItem('pendingVerificationEmail') || '';
+        emailInput.value = pendingEmail;
+
+        document.getElementById('verification-form').addEventListener('submit', async function (event) {
+            event.preventDefault();
+            setBusy(true);
+            try {
+                const result = await request({ action: 'verifyOTP', email: emailInput.value.trim(), otp: otpInput.value.trim() });
+                if (!result || !result.success) throw new Error(result && result.message ? result.message : 'Verification failed.');
+                localStorage.setItem('verifiedEmail', emailInput.value.trim().toLowerCase());
+                localStorage.removeItem('pendingVerificationEmail');
+                showStatus('Email verified successfully. You can now log in.', false);
+                setTimeout(() => { window.location.href = 'login.html'; }, 900);
+            } catch (error) {
+                showStatus(error.message || 'Verification failed. Please try again.', true);
+                setBusy(false);
+            }
+        });
+
+        document.getElementById('resend-button').addEventListener('click', async function () {
+            if (!emailInput.value.trim()) { showStatus('Enter your email address first.', true); return; }
+            setBusy(true);
+            try {
+                const result = await request({ action: 'sendOTP', email: emailInput.value.trim() });
+                if (!result || !result.success) throw new Error(result && result.message ? result.message : 'Could not send the code.');
+                showStatus('A new verification code was sent.', false);
+            } catch (error) {
+                showStatus(error.message || 'Could not send the code.', true);
+            } finally {
+                setBusy(false);
+            }
+        });
+
+        async function request(payload) {
+            const response = await fetch(APPS_SCRIPT_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) throw new Error('The verification service is unavailable. Please try again later.');
+            try { return await response.json(); }
+            catch (error) { throw new Error('The verification service returned an invalid response. Please try again later.'); }
+        }
+
+        function setBusy(isBusy) {
+            document.querySelectorAll('button').forEach(button => { button.disabled = isBusy; });
+        }
+
+        function showStatus(message, isError) {
+            status.textContent = message;
+            status.className = isError ? 'error' : 'success';
+        }
+    </script>
+</body>
+</html>

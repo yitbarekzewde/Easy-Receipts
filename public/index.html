@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Easy Receipt</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="icon" href="favicon.ico" type="image/r-icon">
+        .site-logo {
+  width: 150px; /* Adjust as needed */
+  height: auto;
+  display: block;
+}
+        .bg-black {
+            background-color: black;
+        }
+
+        .approval-box {
+            background: #f9f9f9;
+            border: 1px dashed #ccc;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+        }
+
+        .approval-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+            background: #fff;
+            padding: 5px;
+            border-radius: 3px;
+            border: 1px solid #eee;
+        }
+
+        .price-mgmt-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        .price-mgmt-table th,
+        .price-mgmt-table td {
+            padding: 8px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+
+        .price-mgmt-table th {
+            background-color: #f4f4f4;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+    <script type="module" src="firebase-config.js"></script>
+</head>
+
+<body>
+    <div class="top">
+        <div class="sticky-continer">
+            <div class="menu-btn" id="menu-btn" onclick="toggleDropdown(event)">
+                <i class="fa fa-bars"></i>
+                <ul id="dropdown">
+                    <li onclick="handleMenuClick('statements')"><i class="fas fa-file-invoice-dollar icon-primary"></i>
+                        View Statements</li>
+                    <li onclick="handleMenuClick('drafts')"><i class="fas fa-save icon-primary"></i> Saved Drafts</li>
+                    <li onclick="handleMenuClick('profile')"><i class="fas fa-user-circle icon-primary"></i> Manage
+                        Profile</li>
+                    <li onclick="handleMenuClick('priceMgmt')"><i class="fas fa-tags icon-primary"></i> Price & Product
+                        Management</li>
+                    <li id="register-account-menu" onclick="window.location.href='reg-form.html'"><i class="fas fa-user-plus icon-primary"></i>
+                        Register Account</li>
+                    
+                    <li onclick="handleMenuClick('customers')"><i class="fas fa-users icon-primary"></i> Manage
+                        Customers</li>
+                    <li onclick="handleMenuClick('downloads')"><i class="fas fa-download icon-primary"></i> Downloaded
+                        Receipts</li>
+                    <li onclick="handleMenuClick('savedReceipts')"><i class="fas fa-receipt icon-primary"></i> Saved
+                        Receipts</li>
+                        
+                </ul>
+            </div>
+            <div class="easy-receipt-title">Easy Receipt</div>
+            <div class="profile-container" onclick="openProfileModal()">
+                <span id="user-display-name">Guest Cashier</span>
+                <div class="avatar-wrapper" id="nav-avatar-wrapper">
+                    <img id="nav-avatar-img" src="" alt="Profile">
+                    <i class="fas fa-user-circle" id="nav-avatar-icon"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="panel">
+            <h2 class="section-heading">Stock Importer</h2>
+            <h4 class="paragraph-small">Paste your stock list below, one item per line, and click "Process & Add" to add them to the cart. 👇</h4>
+            <textarea id="bulkData" placeholder="Huletts 1kg&#10;500g&#10;Polony 2.5kg 1" rows="3"></textarea>
+            <button class="btn-import" onclick="cartManager.importItems()">Process & Add</button>
+            <div id="importStatus" class="status-message" aria-live="polite"></div>
+
+
+            <!-- Navigation Control Bar inside the circled area -->
+<div class="nav-toolbar">
+    <button type="button" id="btn-shift" title="Shift focus forward" aria-label="Shift focus forward" aria-pressed="false">🔁</button>
+  <button type="button" id="btn-down" title="Move Focus Down">⬇️</button>
+  <button type="button" id="btn-return" title="Jump / Return">↩️</button>
+</div>
+
+            <div id="itemList" class="mt-20"></div>
+            <button class="btn-secondary" onclick="cartManager.addEmpty()">+ Add Row Manually</button>
+
+            <div class="form-grid mt-20">
+                <div>
+                    <label class="section-label" for="storeSelect">Store Name</label>
+                    <select id="storeSelect" onchange="storeManager.handleStoreChange()"></select>
+                </div>
+                <div>
+                    <label class="section-label customer-label-row" for="customerSelect"><span>Customer Name</span><span id="selectedCustomerBalance" class="selected-customer-balance hidden"></span></label>
+                    <select id="customerSelect" title="Select a saved customer" onchange="customerManager.handleCustomerChange()"></select>
+                    <input type="hidden" id="client">
+                    <input type="hidden" id="customerEmail">
+                    <input type="hidden" id="customerPhone">
+                </div>
+                <div>
+                    <label class="section-label">Cash Paid</label>
+                    <input type="number" id="paid" placeholder="Enter Cash Paid Amount">
+                </div>
+                <div>
+                    <label class="section-label">Online Paid</label>
+                    <input type="number" id="online" placeholder="S2S or Card Paid Amount">
+                </div>
+                <div>
+                    <label class="section-label">Discount %</label>
+                    <input type="number" id="discount" value="0.00" placeholder="Discount %">
+                </div>
+                <div>
+                    <label class="section-label">Tax %</label>
+                    <input type="number" id="tax" value="0.00" placeholder="Tax %">
+                </div>
+            </div>
+
+            <div id="priceApprovalSection" class="approval-box hidden">
+                <h4>📌 New Items Pending Price System Approval</h4>
+                <p class="paragraph-small">The following items are new and require approval before they can be added to the cart. Please review and approve them.</p>
+                <h5 class="section-subheading"> when you approve the item it will be added to the cart and also saved in the price management system for future use of automatic price suggestions and fillings.</h5>
+                <div id="approvalItemsList"></div>
+                <div class="flex-gap-10 mt-10">
+                    <button class="btn-primary" style="padding: 4px 10px; font-size:12px;"
+                        onclick="inventoryPriceManager.approveAllPending()">Approve All</button>
+                </div>
+            </div>
+
+            <div class="flex-gap-10 mt-20">
+                <button class="btn-share" onclick="window.openShareOptions()"><i class="fas fa-share-alt"></i> Share
+                    to WhatsApp</button>
+                <button class="btn-primary" onclick="window.printReceiptOnly()"><i class="fas fa-print"></i> Print
+                    Receipt</button>
+                <button class="btn-danger" onclick="cartManager.handleClearCart()">Clear Cart</button>
+            </div>
+        </div>
+
+        <div class="preview-side">
+            <div id="receipt-box">
+                <div id="receipt-ui"></div>
+            </div>
+
+            <div class="flex-gap-10 mt-10">
+                <button class="btn-primary" onclick="window.downloadReceipt()"><i class="fas fa-download"></i>
+                    Download</button>
+                <button class="btn-primary" onclick="cartManager.saveReceipt()"><i class="fas fa-save"></i> Save
+                    Snap</button>
+                <button class="btn-save" onclick="cartManager.saveCurrentDraft()"><i class="fas fa-save"></i> Save
+                    Draft</button>
+                <button style="background-color: aqua;" class="add-to-customer-list" onclick="customerManager.addCustomerFromInput()"><i class="fas fa-plus"></i> Add to C List</button>
+            </div>
+
+            <div class="drafts-section mt-20 full-width">
+                <h5 class="section-subheading">Saved Drafts / Active Worksheets</h5>
+                <div id="draftsList"></div>
+            </div>
+
+            <button class="contact-us-btn"
+                onclick="document.getElementById('contactUsEmail').classList.remove('hidden');">Contact Us Or Get
+                Support</button>
+
+            <div id="contactUsEmail" class="hidden">
+                <div class="mail-card">
+                    <h3 class="modal-heading"><i class="fas fa-envelope action-icon-primary"></i> Contact Support</h3>
+                    <p class="paragraph-small">Email us at: <a href="mailto:yitbarek537zewde@gmail.com"
+                            class="link-primary">yitbarek537zewde@gmail.com</a></p>
+                    <form id="emailForm">
+                        <div class="form-group"><label class="small-label" for="toEmail">Your email</label><input
+                                type="email" id="toEmail" name="toEmail" required autocomplete="off"
+                                placeholder="you@example.com" title="Your email address"></div>
+                        <div class="form-group"><label class="small-label" for="subject">Subject</label><input
+                                type="text" id="subject" name="subject" value="Support Request"
+                                placeholder="Email subject" title="Email subject"></div>
+                        <div class="form-group"><label class="small-label" for="message">Message</label><textarea
+                                id="message" name="message" rows="3" placeholder="Describe your issue or question"
+                                title="Message body"></textarea></div>
+                        <div class="form-group"><label class="small-label" for="support-screenshot">Screenshot
+                                (Optional)</label><input type="file" id="support-screenshot" name="support-screenshot"
+                                accept="image/*" title="Attach a screenshot (optional)"></div>
+                        <button type="submit" id="sendButton" class="send-btn">🚀 Send Email</button>
+                        <button type="button" class="btn-danger"
+                            onclick="document.getElementById('contactUsEmail').classList.add('hidden');">Close</button>
+                    </form>
+                    <div id="statusArea" class="status-message"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="login" class="login-modal">
+        <div class="login-content" onclick="event.stopPropagation()">
+            <span class="close-modal" onclick="document.getElementById('login').style.display='none'">&times;</span>
+            <h3 class="modal-heading"><i class="fas fa-user-circle action-icon-primary"></i> User Login</h3>
+            <p class="paragraph-small">Please log in to access your profile and saved data.</p>
+            <button id="login-register-button" class="btn-primary" onclick="authManager.openAuthModal()">Login / Register</button>
+        </div>
+
+    <div id="authModal" class="modal">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <span class="close-modal" onclick="authManager.closeAuthModal()">&times;</span>
+
+            <div id="profile-active-view" class="hidden">
+                <h3 class="modal-heading"><i class="fas fa-id-card action-icon-primary"></i> Cashier Profile</h3>
+                <div class="profile-info-row">
+                    <div class="profile-pic-circle" onclick="document.getElementById('pic-upload-input').click()"
+                        title="Click to change photo">
+                        <img id="modal-avatar-img" src="" alt="Profile Photo">
+                        <i class="fas fa-user-circle" id="modal-avatar-icon"></i>
+                        <div class="pic-overlay"><i class="fas fa-camera"></i></div>
+                    </div>
+                    <input type="file" id="pic-upload-input" accept="image/*"
+                        onchange="authManager.handlePicUpload(event)" title="Upload profile photo"
+                        placeholder="Upload photo" aria-label="Upload profile photo">
+                    <div class="profile-info-text">
+                        <div class="profile-name-line">
+                            <p><strong id="prof-name"></strong></p>
+                            <div class="profile-name-menu">
+                                <button type="button" class="profile-menu-button" onclick="authManager.toggleNameMenu(event)" aria-label="Edit profile name" title="Edit profile name"><i class="fas fa-ellipsis-v"></i></button>
+                                <div id="profileNameMenuPanel" class="profile-name-menu-panel hidden">
+                                    <label class="small-label" for="edit-name-input">Display name</label>
+                                    <div class="profile-form-row">
+                                        <input type="text" id="edit-name-input" placeholder="Your name">
+                                        <button type="button" onclick="authManager.saveUpdatedName()" class="button-save-profile">Save</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <p id="prof-email" class="text-muted"></p><span class="pic-hint">Click photo to change</span>
+                    </div>
+                </div>
+
+                <hr class="section-divider">
+                <h4 class="section-subheading"><i class="fas fa-users action-icon-primary"></i> Registered Customers & Transaction History</h4>
+                <div id="profileCustomerHistory"></div>
+            </div>
+
+            <div id="profile-setup-view">
+                <h3 class="modal-heading">Account Setup & Registration</h3>
+                <div class="auth-tabs">
+                    <div class="auth-tab active" onclick="authManager.switchTab('google')"><i class="fab fa-google"></i>
+                        Sign in with Google</div>
+                    <div class="auth-tab" onclick="authManager.switchTab('manual')"><i class="fas fa-user"></i> Manual
+                        Setup / Register</div>
+                </div>
+
+                <div class="auth-panel active" id="tab-google">
+                    <p class="paragraph-small">Sign in with your Google account to sync your receipts and profile photo
+                        automatically.</p>
+                    <div id="g_id_onload"
+                        data-client_id="140939199464-qebi1pvbll1q8e4e861pckst38t8e7n3.apps.googleusercontent.com"
+                        data-callback="handleCredentialResponse" data-auto_prompt="false"></div>
+                    <div class="g_id_signin" data-type="standard"></div>
+                </div>
+
+                <div class="auth-panel" id="tab-manual">
+                    <p class="paragraph-small">Set up your profile manually and optionally upload a profile photo.</p>
+                    <div class="auth-photo-upload">
+                        <div class="profile-pic-circle" onclick="document.getElementById('pic-upload-setup').click()"
+                            title="Click to add photo">
+                            <img id="setup-avatar-img" src="" alt="Profile Photo">
+                            <i class="fas fa-user-circle" id="setup-avatar-icon"></i>
+                            <div class="pic-overlay"><i class="fas fa-camera"></i></div>
+                        </div>
+                        <label for="pic-upload-setup" class="visually-hidden">Upload profile photo</label>
+                        <input type="file" id="pic-upload-setup" accept="image/*"
+                            onchange="authManager.handleSetupPicUpload(event)" title="Upload profile photo"
+                            aria-label="Upload profile photo">
+                        <span class="pic-hint">Click to add a profile photo</span>
+                    </div>
+                    <form id="profileForm" onsubmit="authManager.saveManualProfile(event)">
+                        <label class="small-label" for="regName">Cashier / Owner Name</label>
+                        <input type="text" id="regName" placeholder="e.g. Yitbarek Zewde"
+                            title="Cashier or owner full name" required>
+                        <label class="small-label" for="regEmail">Shop Contact Email</label>
+                        <input type="email" id="regEmail" placeholder="name@example.com"
+                            title="Shop contact email address" required>
+                        <button type="submit" class="button-save-profile">Save Profile Details</button>
+                    </form>
+                    <hr class="section-divider">
+                    <p class="paragraph-small">Want a username &amp; password account instead?</p>
+                    <div class="flex-gap-10">
+                        <button type="button" class="btn-primary" onclick="window.location.href='reg-form.html'"><i
+                                class="fas fa-user-plus"></i> Register</button>
+                        <button type="button" class="btn-secondary" onclick="window.location.href='login.html'"><i
+                                class="fas fa-right-to-bracket"></i> Login</button>
+                        
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="viewsModal" class="modal">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <span class="close-modal" onclick="closeViewsModal()">&times;</span>
+
+            <div id="view-statements" class="view-panel">
+                <h3 class="modal-heading">Statements</h3>
+                <div id="statementView"></div>
+            </div>
+            <div id="view-drafts" class="view-panel">
+                <h3 class="modal-heading">Saved Drafts</h3>
+                <div id="draftView"></div>
+            </div>
+            <div id="view-profile" class="view-panel">
+                <h3 class="modal-heading">Profile Details</h3>
+                <div id="profileView"></div>
+            </div>
+            <div id="view-downloads" class="view-panel">
+                <h3 class="modal-heading">Downloaded Receipts</h3>
+                <div id="downloadView"></div>
+            </div>
+            <div id="view-savedReceipts" class="view-panel">
+                <h3 class="modal-heading">Saved Receipts</h3>
+                <div id="savedReceiptView"></div>
+            </div>
+            <div id="view-ordering" class="view-panel">
+                <h3 class="modal-heading"><i class="fas fa-cart-plus"></i> Ordering</h3>
+                <div class="ordering-search">
+                    <input type="search" id="orderingSearchInput" placeholder="Search items" aria-label="Search ordering items">
+                    <button type="button" class="btn-primary" onclick="searchOrderingItems()"><i class="fas fa-search"></i> Search</button>
+                </div>
+                <div id="orderingItems" class="ordering-items"></div>
+                <button type="button" class="btn-save ordering-done-button" onclick="finishOrdering()"><i class="fas fa-check"></i> Done</button>
+            </div>
+
+            <div id="view-priceMgmt" class="view-panel">
+                <h3 class="modal-heading"><i class="fas fa-tags"></i> Price & Product Management</h3>
+                <p class="paragraph-small">Modify custom item base prices stored within your browser auto-complete index
+                    layout below:</p>
+                <div class="scrollable-x">
+                    <table class="price-mgmt-table">
+                        <thead>
+                            <tr>
+                                <th>Item Name</th>
+                                <th>Base Price (R)</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="price-management-rows"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="view-customers" class="view-panel">
+                <h3 class="modal-heading">Manage Customers</h3>
+                <div id="customerBalanceSummary" class="customer-balance-summary"></div>
+                <div class="flex-gap-10 mb-15">
+                    <input type="text" id="newCustomerName" placeholder="Enter customer name" class="flex-grow">
+                            <input type="tel" id="newCustomerPhone" placeholder="Phone number" class="flex-grow">
+                    <button onclick="customerManager.addCustomerManual()" class="customer-add-btn"><i
+                            class="fas fa-plus"></i> Add Customer</button>
+                </div>
+                <div id="customersListView">
+                    <div id="view-client-directory" class="view-panel">
+                        <h3 class="modal-heading"><i class="fas fa-users"></i> Client Accounts Directory Ledger</h3>
+                        <div class="flex-gap-10 mb-15">
+                            <input type="text" id="newCustomerProfileName" placeholder="Enter new customer profile name" class="flex-grow">
+                            <button onclick="customerManager.addCustomerManual()" class="customer-add-btn"><i class="fas fa-plus"></i> Add Profile</button>
+                        </div>
+                        <div id="customerDirectoryListView"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="send-receipt-via-email">
+        <div id="receiptEmailModal" class="modal hidden">
+            <div class="modal-content" onclick="event.stopPropagation()">
+                <span class="close-modal" onclick="closeReceiptEmail()">&times;</span>
+                <h3 class="modal-heading"><i class="fas fa-envelope"></i> Email Receipt</h3>
+                <p class="paragraph-small">The receipt will be sent to the selected customer.</p>
+                <label class="small-label" for="receiptEmailTo">Customer email</label>
+                <input type="email" id="receiptEmailTo" required placeholder="customer@example.com">
+                <label class="small-label" for="receiptEmailSubject">Subject</label>
+                <input type="text" id="receiptEmailSubject" value="Your receipt from Easy Receipt">
+                <div id="receiptEmailStatus" class="status-message"></div>
+                <div class="flex-gap-10 mt-10">
+                    <button type="button" class="btn-primary" id="sendReceiptEmailButton" onclick="sendReceiptByEmail()"><i class="fas fa-paper-plane"></i> Send Receipt</button>
+                    <button type="button" class="btn-danger" onclick="closeReceiptEmail()">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="receiptImageModal" class="modal modal-extra-high">
+        <div class="modal-content modal-center" onclick="event.stopPropagation()">
+            <span class="close-modal"
+                onclick="document.getElementById('receiptImageModal').style.display='none'">&times;</span>
+            <h4 class="modal-heading">Saved Receipt Snapshot</h4>
+            <img id="receiptImageView" class="receipt-image" src="" alt="Saved receipt snapshot"
+                title="Saved receipt snapshot">
+            <div class="flex-gap-10 mt-10">
+                <button class="btn-share" onclick="downloadSavedReceipt(document.getElementById('receiptImageModal').dataset.snapshotId)"><i class="fas fa-download"></i>
+                    Download Image</button>
+                <button class="btn-danger"
+                    onclick="document.getElementById('receiptImageModal').style.display='none'">Close View</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sticky Bottom Bar Navigation -->
+<div class="sticky-bottom-nav">
+    <button class="bottom-nav-item" onclick="window.scrollTo({top: 0, behavior: 'smooth'})">
+        <i class="fas fa-home"></i>
+        <span>Home</span>
+    </button>
+    
+    <button class="bottom-nav-item" onclick="openView('savedReceipts')">
+        <i class="fas fa-receipt"></i>
+        <span>Receipts</span>
+    </button>
+
+    <button class="bottom-nav-item" onclick="openView('ordering')">
+        <i class="fas fa-cart-plus"></i>
+        <span>Ordering</span>
+    </button>
+
+    <button class="bottom-nav-item" onclick="shareReceiptAction()">
+        <i class="fab fa-whatsapp"></i>
+        <span>Share</span>
+    </button>
+
+    <button class="bottom-nav-item" onclick="window.printReceiptOnly()">
+        <i class="fas fa-print"></i>
+        <span>Print</span>
+    </button>
+</div>
+
+<div id="shareOptionsModal" class="modal">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <span class="close-modal" onclick="closeShareOptions()">&times;</span>
+        <h3 class="modal-heading"><i class="fas fa-share-alt"></i> Share Receipt</h3>
+        <p class="paragraph-small">Choose how you want to share the receipt:</p>
+        <div class="flex-gap-10 mt-10">
+            <button class="btn-share" onclick="shareReceiptAction(); closeShareOptions()"><i class="fab fa-whatsapp"></i> Share to WhatsApp</button>
+            <button class="btn-primary" onclick="openReceiptEmail(); closeShareOptions()"><i class="fas fa-envelope"></i> Send via Email</button>
+            <button class="btn-primary" onclick="shareReceiptPng(); closeShareOptions()"><i class="fas fa-image"></i> Share Original PNG</button>
+            <button class="btn-secondary" onclick="downloadReceiptText(); closeShareOptions()"><i class="fas fa-file-lines"></i> Download TXT</button>
+            <button class="btn-primary" onclick="window.downloadReceipt(); closeShareOptions()"><i class="fas fa-download"></i> Download</button>
+            <button class="btn-danger" onclick="closeShareOptions()">Cancel</button>
+        </div>
+    </div>
+</div>
+    <footer> 
+        <div class="followus-links">
+            <h1 class="followus-heading" style="display: flex;">Follow Us</h1>
+            <a href="https://www.youtube.com/@Yitbarek_Zewde" target="_blank" rel="noopener" title="Follow us on YouTube" class="followus-link"><i class="fab fa-youtube"></i></a>
+            <a href="https://www.facebook.com/YitbarekZewde.co" target="_blank" rel="noopener" title="Follow us on Facebook" class="followus-link"><i class="fab fa-facebook"></i></a>
+            <a href="https://www.instagram.com/yitbarekzewde1/" target="_blank" rel="noopener" title="Follow us on Instagram" class="followus-link"><i class="fab fa-instagram"></i></a>
+            <a href="https://www.linkedin.com/in/yitbarek-zewde-1a0b3b1b6/" target="_blank" rel="noopener" title="Follow us on LinkedIn" class="followus-link"><i class="fab fa-linkedin"></i></a>
+            <a href="https://twitter.com/YitbarekZewdeYZ" target="_blank" rel="noopener" title="Follow us on Twitter" class="followus-link"><i class="fab fa-twitter"></i></a>
+        </div>
+        <p class="footer-text">© 2026 Easy Receipt. All rights reserved.</p>
+    </footer>
+    <script href="main.js" src="main.js"></script>
+    <script>
+        window.handleCredentialResponse = function (response) {
+            try {
+                const payload = JSON.parse(atob(response.credential.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+                authManager.saveProfile({ name: payload.name || 'Google User', email: payload.email || '', picture: payload.picture || null, provider: 'google' });
+                document.getElementById('profile-setup-view').style.display = 'none';
+                document.getElementById('profile-active-view').classList.remove('hidden');
+                closeViewsModal();
+            } catch (error) {
+                alert('Google sign-in failed. Please try again.');
+            }
+        };
+    </script>
+</body>
+
+</html>

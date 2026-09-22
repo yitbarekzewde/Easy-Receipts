@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width,initial-scale=1" />
+	<title>Receipt — Share · Download · Print</title>
+	<style>
+		:root{--bg:#f6f7fb;--card:#fff;--accent:#0b69ff;--muted:#666}
+		body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial;background:var(--bg);margin:0;padding:32px;display:flex;align-items:center;justify-content:center;min-height:100vh}
+		.wrap{width:920px;max-width:95%;}
+		.card{background:var(--card);border-radius:12px;box-shadow:0 6px 24px rgba(12,18,31,0.08);overflow:hidden}
+		header{display:flex;align-items:center;justify-content:space-between;padding:20px 24px;border-bottom:1px solid #eef0f5}
+		header h1{font-size:18px;margin:0}
+		.actions{display:flex;gap:8px}
+		button{background:var(--accent);color:#fff;border:0;padding:10px 14px;border-radius:8px;cursor:pointer;font-weight:600}
+		button.secondary{background:#fff;color:var(--accent);border:1px solid rgba(11,105,255,0.12)}
+		main{display:grid;grid-template-columns:1fr 320px;gap:20px;padding:20px}
+		.receipt{background:linear-gradient(180deg,#fff,#fbfdff);padding:20px;border-radius:8px;border:1px solid #f1f4fb}
+		.meta{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px}
+		.meta .from{font-weight:700}
+		.vendor-address{color:var(--muted);font-size:13px}
+		.items{width:100%;border-collapse:collapse}
+		.items th,.items td{padding:10px;border-bottom:1px solid #f1f4fb;text-align:left}
+		.items th.text-right,.items td.text-right{text-align:right}
+		.summary{background:#fff;padding:18px;border-radius:8px;border:1px solid #f1f4fb}
+		.summary .row{display:flex;justify-content:space-between;margin-bottom:10px}
+		.total{font-weight:800;font-size:18px}
+		.text-right{text-align:right}
+		.font-strong{font-weight:700}
+		.meta-date{color:var(--muted);font-size:13px}
+		.section-divider{border:none;border-top:1px solid #f1f4fb;margin:12px 0}
+		.json-label{font-size:13px;color:var(--muted);margin-bottom:8px}
+		pre.json{white-space:pre-wrap;word-break:break-word;background:#f8f9ff;padding:12px;border-radius:8px;border:1px dashed #e6ecff;font-size:13px;color:var(--muted)}
+		@media(max-width:840px){main{grid-template-columns:1fr;}.actions{flex-wrap:wrap}}
+	</style>
+<script src="notification.js"></script>
+</head>
+<body>
+	<div class="wrap">
+		<div class="card" role="region" aria-label="Receipt share download print">
+			<header>
+				<h1>Receipt</h1>
+				<div class="actions">
+					<button id="shareBtn">Share</button>
+					<button id="downloadBtn" class="secondary">Download PDF</button>
+					<button id="downloadJsonBtn" class="secondary">Download JSON</button>
+					<button id="printBtn" class="secondary">Print</button>
+				</div>
+			</header>
+
+			<main>
+				<section class="receipt" id="receipt">
+					<div class="meta">
+						<div>
+							<div class="from">Moon Bakery</div>
+							<div class="vendor-address">123 Lunar Ave, Suite 9<br/>Moon City</div>
+						</div>
+						<div class="rec-date-time text-right">
+							<div class="font-strong">Receipt #<span id="receiptId">R-2026-0042</span></div>
+							<div class="meta-date">Date: <span id="date">2026-06-21</span></div>
+						</div>
+					</div>
+
+					<table class="items" aria-label="items">
+						<thead>
+							<tr><th>Item</th><th>Qty</th><th class="text-right">Price</th></tr>
+						</thead>
+						<tbody id="itemsBody">
+						</tbody>
+					</table>
+				</section>
+
+				<aside class="summary">
+					<div class="row"><div>Customer</div><div id="customer">Jane Doe</div></div>
+					<div class="row"><div>Payment</div><div id="payment">Card •••• 4242</div></div>
+					<div class="row"><div>Subtotal</div><div id="subtotal">$0.00</div></div>
+					<div class="row"><div>Tax</div><div id="tax">$0.00</div></div>
+					<div class="row total"><div>Total</div><div id="total">$0.00</div></div>
+					<hr class="section-divider" />
+					<div class="json-label">Receipt JSON</div>
+					<pre class="json" id="jsonView"></pre>
+				</aside>
+			</main>
+		</div>
+	</div>
+
+	<script>
+		// Sample receipt data
+		const receipt = {
+			id: 'R-2026-0042',
+			date: '2026-06-21',
+			vendor: {name:'Moon Bakery', address:'123 Lunar Ave, Suite 9, Moon City'},
+			customer: 'Jane Doe',
+			payment: 'Card •••• 4242',
+			items: [
+				{name:'Sourdough Loaf', qty:1, price:4.5},
+				{name:'Blueberry Muffin', qty:3, price:2.25},
+				{name:'Coffee (Large)', qty:2, price:3.0}
+			],
+			taxRate:0.07
+		};
+
+		function format(n){return '$'+n.toFixed(2)}
+
+		// render
+		document.getElementById('receiptId').textContent = receipt.id;
+		document.getElementById('date').textContent = receipt.date;
+		document.getElementById('customer').textContent = receipt.customer;
+		document.getElementById('payment').textContent = receipt.payment;
+
+		const tbody = document.getElementById('itemsBody');
+		let subtotal = 0;
+		receipt.items.forEach(it=>{
+			const tr = document.createElement('tr');
+			const total = it.qty * it.price; subtotal += total;
+			tr.innerHTML = `<td>${it.name}</td><td>${it.qty}</td><td class="text-right">${format(total)}</td>`;
+			tbody.appendChild(tr);
+		});
+		const tax = subtotal * receipt.taxRate;
+		const total = subtotal + tax;
+		document.getElementById('subtotal').textContent = format(subtotal);
+		document.getElementById('tax').textContent = format(tax);
+		document.getElementById('total').textContent = format(total);
+		document.getElementById('jsonView').textContent = JSON.stringify(receipt, null, 2);
+
+		// Share
+		document.getElementById('shareBtn').addEventListener('click', async ()=>{
+			const shareData = {title:'Receipt '+receipt.id, text:'Receipt from '+receipt.vendor.name+' — Total '+format(total), url:location.href};
+			if(navigator.share){
+				try{await navigator.share(shareData);}catch(e){alert('Share cancelled or not available');}
+			} else {
+				// fallback: copy JSON to clipboard
+				try{await navigator.clipboard.writeText(JSON.stringify(receipt, null, 2)); alert('Receipt copied to clipboard');}catch(e){alert('Share not supported');}
+			}
+		});
+
+		// Download JSON
+		document.getElementById('downloadJsonBtn').addEventListener('click', ()=>{
+			const blob = new Blob([JSON.stringify(receipt, null, 2)], {type:'application/json'});
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a'); a.href = url; a.download = `${receipt.id}.json`; a.click(); URL.revokeObjectURL(url);
+		});
+
+		// Download PDF (simple print-to-PDF)
+		document.getElementById('downloadBtn').addEventListener('click', ()=>{
+			// open a print window focused on the receipt element
+			const printWindow = window.open('', '_blank');
+			printWindow.document.write(`<html><head><title>Receipt ${receipt.id}</title><style>body{font-family:Arial;padding:20px}</style></head><body>`+document.getElementById('receipt').outerHTML+`</body></html>`);
+			printWindow.document.close();
+			printWindow.focus();
+			// delay to ensure render
+			setTimeout(()=>{printWindow.print();}, 300);
+		});
+
+		// Print current page receipt
+		document.getElementById('printBtn').addEventListener('click', ()=>{
+			// hide controls for printing
+			const actions = document.querySelector('header .actions'); actions.style.display='none';
+			window.print();
+			actions.style.display='flex';
+		});
+	</script>
+</body>
+</html>

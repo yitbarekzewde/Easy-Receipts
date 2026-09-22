@@ -1,0 +1,13 @@
+specVersion: "v1"
+serviceId: "easy-receipt1-service"
+location: "us-east4"
+schemas:
+  - source: "./schema"
+    datasource:
+      postgresql:
+        database: "easy-receipt-database"
+        cloudSql:
+          instanceId: "easy-receipt-instance"
+          # schemaValidation: "STRICT"     # STRICT mode makes Postgres schema match Data Connect exactly.
+          # schemaValidation: "COMPATIBLE" # COMPATIBLE mode makes Postgres schema compatible with Data Connect.
+connectorDirs: ["./example"]
