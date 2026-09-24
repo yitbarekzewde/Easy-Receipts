@@ -196,8 +196,15 @@ class CustomerManager {
             summary.textContent = '';
             return;
         }
+        const due = Number(selected.due || 0);
+        const deposit = Number(selected.deposit || 0);
+        const balanceMarkup = due > 0
+            ? `<span class="customer-balance-due">Due R ${due.toFixed(2)}</span>`
+            : deposit > 0
+                ? `<span class="customer-balance-deposit">Deposit R ${deposit.toFixed(2)}</span>`
+                : '';
         summary.classList.remove('hidden');
-        summary.innerHTML = `<span>${this.escapeHtml(selected.name)}</span><span class="customer-balance-due">Due R ${Number(selected.due || 0).toFixed(2)}</span><span class="customer-balance-deposit">Deposit R ${Number(selected.deposit || 0).toFixed(2)}</span>`;
+        summary.innerHTML = `<span>${this.escapeHtml(selected.name)}</span>${balanceMarkup}`;
     }
     escapeHtml(value) {
         return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
@@ -403,6 +410,9 @@ class CustomerManager {
                 } else {
                     historyHtml = '<p style="font-size:12.5px; color:#94a3b8; margin-top:10px; padding-left:4px;">No linked transaction logs found yet.</p>';
                 }
+                const lastDeposit = Array.isArray(c.depositPayments) && c.depositPayments.length > 0
+                    ? Number(c.depositPayments[c.depositPayments.length - 1].amount || 0).toFixed(2)
+                    : '';
 
                 return `
                 <div class="customer-history-card">
@@ -417,7 +427,7 @@ class CustomerManager {
                     <div id="customer-details-${c.id}" class="customer-details hidden">
                     <div class="customer-balance-controls">
                         <div><label for="due-${c.id}">Due amount (calculated)</label><input id="due-${c.id}" type="number" value="${Number(c.due || 0).toFixed(2)}" readonly></div>
-                        <div><label for="deposit-${c.id}">Deposit amount</label><input id="deposit-${c.id}" type="number" min="0" step="0.01" value="${Number(c.deposit || 0).toFixed(2)}"></div>
+                        <div><label for="deposit-${c.id}">Deposit amount</label><input id="deposit-${c.id}" type="number" min="0" step="0.01" placeholder="${lastDeposit ? `Last deposit: R ${lastDeposit}` : 'Enter deposit amount'}"></div>
                         <div><label for="deposit-method-${c.id}">Deposit method</label><select id="deposit-method-${c.id}" required><option value="">Choose method</option><option value="cash" ${c.depositMethod === 'cash' ? 'selected' : ''}>Cash</option><option value="online" ${c.depositMethod === 'online' ? 'selected' : ''}>Online</option></select></div>
                         <button type="button" class="customer-add-btn" onclick="customerManager.updateBalance(${c.id})"><i class="fas fa-save"></i> Save Balance</button>
                     </div>
@@ -432,9 +442,10 @@ class CustomerManager {
         const customers = this.getSavedCustomers();
         const customer = customers.find(item => item.id === id);
         if (!customer) return;
-        const deposit = Number(document.getElementById(`deposit-${id}`).value);
+        const depositInput = document.getElementById(`deposit-${id}`);
+        const deposit = Number(depositInput.value);
         const depositMethod = document.getElementById(`deposit-method-${id}`)?.value || '';
-        if (!Number.isFinite(deposit) || deposit < 0) return alert('Enter a valid deposit amount.');
+        if (!depositInput.value.trim() || !Number.isFinite(deposit) || deposit <= 0) return alert('Enter a valid deposit amount.');
         if (!depositMethod) return alert('Choose Cash or Online before saving the deposit.');
         customer.deposit = deposit;
         customer.depositMethod = depositMethod;
@@ -509,7 +520,7 @@ class InventoryPriceManager {
     constructor() { this.pendingApprovals = []; }
     getAutoPrices() {
         const stored = JSON.parse(localStorage.getItem('p3_auto_prices') || '{}');
-        const prices = Object.fromEntries(Object.entries(stored).filter(([, item]) => item && Number(item.price) > 0));
+        const prices = Object.fromEntries(Object.entries(stored).filter(([, item]) => item && item.originalName));
         if (Object.keys(prices).length !== Object.keys(stored).length) localStorage.setItem('p3_auto_prices', JSON.stringify(prices));
         return prices;
     }
@@ -519,27 +530,26 @@ class InventoryPriceManager {
         const lookup = itemName.trim().toLowerCase();
         return this.getAutoPrices()[lookup] || null;
     }
-    registerOrderingItem(itemName, price) {
+    registerOrderingItem(itemName, price, costPrice = 0) {
         const cleanName = itemName.trim();
         const validPrice = Number(price);
-        if (!cleanName || !Number.isFinite(validPrice) || validPrice <= 0) return;
+        const validCostPrice = Number(costPrice);
+        if (!cleanName) return;
         const prices = this.getAutoPrices();
         const key = cleanName.toLowerCase();
-        if (prices[key]) return;
-        prices[key] = { originalName: formatItemName(cleanName), price: validPrice };
-        this.saveAutoPrices(prices);
+        const savedPrice = Number.isFinite(validPrice) && validPrice > 0 ? validPrice : 0;
+        const savedCostPrice = Number.isFinite(validCostPrice) && validCostPrice > 0 ? validCostPrice : 0;
+        if (!prices[key]) {
+            prices[key] = { originalName: formatItemName(cleanName), price: savedPrice, costPrice: savedCostPrice };
+            this.saveAutoPrices(prices);
+        } else if ((savedPrice > 0 && Number(prices[key].price) !== savedPrice) || (savedCostPrice > 0 && Number(prices[key].costPrice) !== savedCostPrice)) {
+            if (savedPrice > 0) prices[key].price = savedPrice;
+            if (savedCostPrice > 0) prices[key].costPrice = savedCostPrice;
+            this.saveAutoPrices(prices);
+        }
     }
     registerPossibleNewItem(itemName, price) {
-        if (!itemName.trim() || !Number.isFinite(Number(price)) || Number(price) <= 0) return;
-        const normalized = itemName.trim().toLowerCase();
         this.registerOrderingItem(itemName, price);
-        const historicalPrice = this.getAutoPrices()[normalized];
-        if (historicalPrice === undefined) {
-            if (!this.pendingApprovals.some(x => x.name.toLowerCase() === normalized)) {
-                this.pendingApprovals.push({ name: itemName.trim(), price: parseFloat(price) || 0 });
-                this.renderApprovalInterface();
-            }
-        }
     }
     renderApprovalInterface() {
         const box = document.getElementById('priceApprovalSection');

@@ -196,8 +196,15 @@ class CustomerManager {
             summary.textContent = '';
             return;
         }
+        const due = Number(selected.due || 0);
+        const deposit = Number(selected.deposit || 0);
+        const balanceMarkup = due > 0
+            ? `<span class="customer-balance-due">Due R ${due.toFixed(2)}</span>`
+            : deposit > 0
+                ? `<span class="customer-balance-deposit">Deposit R ${deposit.toFixed(2)}</span>`
+                : '';
         summary.classList.remove('hidden');
-        summary.innerHTML = `<span>${this.escapeHtml(selected.name)}</span><span class="customer-balance-due">Due R ${Number(selected.due || 0).toFixed(2)}</span><span class="customer-balance-deposit">Deposit R ${Number(selected.deposit || 0).toFixed(2)}</span>`;
+        summary.innerHTML = `<span>${this.escapeHtml(selected.name)}</span>${balanceMarkup}`;
     }
     escapeHtml(value) {
         return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
@@ -403,6 +410,9 @@ class CustomerManager {
                 } else {
                     historyHtml = '<p style="font-size:12.5px; color:#94a3b8; margin-top:10px; padding-left:4px;">No linked transaction logs found yet.</p>';
                 }
+                const lastDeposit = Array.isArray(c.depositPayments) && c.depositPayments.length > 0
+                    ? Number(c.depositPayments[c.depositPayments.length - 1].amount || 0).toFixed(2)
+                    : '';
 
                 return `
                 <div class="customer-history-card">
@@ -417,7 +427,7 @@ class CustomerManager {
                     <div id="customer-details-${c.id}" class="customer-details hidden">
                     <div class="customer-balance-controls">
                         <div><label for="due-${c.id}">Due amount (calculated)</label><input id="due-${c.id}" type="number" value="${Number(c.due || 0).toFixed(2)}" readonly></div>
-                        <div><label for="deposit-${c.id}">Deposit amount</label><input id="deposit-${c.id}" type="number" min="0" step="0.01" value="${Number(c.deposit || 0).toFixed(2)}"></div>
+                        <div><label for="deposit-${c.id}">Deposit amount</label><input id="deposit-${c.id}" type="number" min="0" step="0.01" placeholder="${lastDeposit ? `Last deposit: R ${lastDeposit}` : 'Enter deposit amount'}"></div>
                         <div><label for="deposit-method-${c.id}">Deposit method</label><select id="deposit-method-${c.id}" required><option value="">Choose method</option><option value="cash" ${c.depositMethod === 'cash' ? 'selected' : ''}>Cash</option><option value="online" ${c.depositMethod === 'online' ? 'selected' : ''}>Online</option></select></div>
                         <button type="button" class="customer-add-btn" onclick="customerManager.updateBalance(${c.id})"><i class="fas fa-save"></i> Save Balance</button>
                     </div>
@@ -432,9 +442,10 @@ class CustomerManager {
         const customers = this.getSavedCustomers();
         const customer = customers.find(item => item.id === id);
         if (!customer) return;
-        const deposit = Number(document.getElementById(`deposit-${id}`).value);
+        const depositInput = document.getElementById(`deposit-${id}`);
+        const deposit = Number(depositInput.value);
         const depositMethod = document.getElementById(`deposit-method-${id}`)?.value || '';
-        if (!Number.isFinite(deposit) || deposit < 0) return alert('Enter a valid deposit amount.');
+        if (!depositInput.value.trim() || !Number.isFinite(deposit) || deposit <= 0) return alert('Enter a valid deposit amount.');
         if (!depositMethod) return alert('Choose Cash or Online before saving the deposit.');
         customer.deposit = deposit;
         customer.depositMethod = depositMethod;
@@ -509,13 +520,14 @@ class InventoryPriceManager {
     constructor() { this.pendingApprovals = []; }
     getAutoPrices() {
         const stored = JSON.parse(localStorage.getItem('p3_auto_prices') || '{}');
-        const prices = Object.fromEntries(Object.entries(stored).filter(([, item]) => item && Number(item.price) > 0));
+        const prices = Object.fromEntries(Object.entries(stored).filter(([, item]) => item && item.originalName));
         if (Object.keys(prices).length !== Object.keys(stored).length) localStorage.setItem('p3_auto_prices', JSON.stringify(prices));
         return prices;
     }
     saveAutoPrices(pricesObj) {
         localStorage.setItem('p3_auto_prices', JSON.stringify(pricesObj));
         this.renderProductSuggestions();
+        this.renderStockFormSuggestions();
         this.renderPriceManagementTable();
     }
 
@@ -525,35 +537,59 @@ class InventoryPriceManager {
         const prices = this.getAutoPrices();
         datalist.innerHTML = Object.values(prices)
             .sort((first, second) => first.originalName.localeCompare(second.originalName))
-            .map(item => `<option value="${String(item.originalName).replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">R ${Number(item.price).toFixed(2)}</option>`)
+            .map(item => `<option value="${String(item.originalName).replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">${Number(item.price) > 0 ? `R ${Number(item.price).toFixed(2)}` : 'Price not set'}</option>`)
             .join('');
+    }
+
+    renderStockFormSuggestions() {
+        const nameList = document.getElementById('stockItemNameSuggestions');
+        const costList = document.getElementById('stockCostPriceSuggestions');
+        const sellList = document.getElementById('stockSellPriceSuggestions');
+        if (!nameList || typeof stockManager === 'undefined') return;
+        const savedBarcodedNames = new Set(stockManager.getStoredStock()
+            .filter(item => String(item.barcode || '').trim())
+            .map(item => String(item.name || '').trim().toLowerCase()));
+        const suggestions = Object.values(this.getAutoPrices())
+            .filter(item => item.originalName && !savedBarcodedNames.has(item.originalName.trim().toLowerCase()))
+            .sort((first, second) => first.originalName.localeCompare(second.originalName));
+        nameList.innerHTML = suggestions
+            .map(item => `<option value="${this.escapeAttribute(item.originalName)}">${Number(item.price) > 0 ? `Sell R ${Number(item.price).toFixed(2)}` : 'Price not set'}</option>`)
+            .join('');
+        const prices = [...new Set(suggestions.flatMap(item => [Number(item.costPrice), Number(item.price)].filter(price => price > 0)))]
+            .sort((first, second) => first - second);
+        const priceOptions = prices.map(price => `<option value="${price.toFixed(2)}"></option>`).join('');
+        if (costList) costList.innerHTML = priceOptions;
+        if (sellList) sellList.innerHTML = priceOptions;
+    }
+
+    escapeAttribute(value) {
+        return String(value || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
     lookupPrice(itemName) {
         const lookup = itemName.trim().toLowerCase();
         return this.getAutoPrices()[lookup] || null;
     }
-    registerOrderingItem(itemName, price) {
+    registerOrderingItem(itemName, price, costPrice = 0) {
         const cleanName = itemName.trim();
         const validPrice = Number(price);
-        if (!cleanName || !Number.isFinite(validPrice) || validPrice <= 0) return;
+        const validCostPrice = Number(costPrice);
+        if (!cleanName) return;
         const prices = this.getAutoPrices();
         const key = cleanName.toLowerCase();
-        if (prices[key]) return;
-        prices[key] = { originalName: formatItemName(cleanName), price: validPrice };
-        this.saveAutoPrices(prices);
+        const savedPrice = Number.isFinite(validPrice) && validPrice > 0 ? validPrice : 0;
+        const savedCostPrice = Number.isFinite(validCostPrice) && validCostPrice > 0 ? validCostPrice : 0;
+        if (!prices[key]) {
+            prices[key] = { originalName: formatItemName(cleanName), price: savedPrice, costPrice: savedCostPrice };
+            this.saveAutoPrices(prices);
+        } else if ((savedPrice > 0 && Number(prices[key].price) !== savedPrice) || (savedCostPrice > 0 && Number(prices[key].costPrice) !== savedCostPrice)) {
+            if (savedPrice > 0) prices[key].price = savedPrice;
+            if (savedCostPrice > 0) prices[key].costPrice = savedCostPrice;
+            this.saveAutoPrices(prices);
+        }
     }
     registerPossibleNewItem(itemName, price) {
-        if (!itemName.trim() || !Number.isFinite(Number(price)) || Number(price) <= 0) return;
-        const normalized = itemName.trim().toLowerCase();
         this.registerOrderingItem(itemName, price);
-        const historicalPrice = this.getAutoPrices()[normalized];
-        if (historicalPrice === undefined) {
-            if (!this.pendingApprovals.some(x => x.name.toLowerCase() === normalized)) {
-                this.pendingApprovals.push({ name: itemName.trim(), price: parseFloat(price) || 0 });
-                this.renderApprovalInterface();
-            }
-        }
     }
     renderApprovalInterface() {
         const box = document.getElementById('priceApprovalSection');
@@ -595,11 +631,12 @@ class InventoryPriceManager {
         if (!tbody) return;
         const prices = this.getAutoPrices();
         const keys = Object.keys(prices);
-        if (!keys.length) { tbody.innerHTML = `<tr><td colspan="3" class="text-muted text-center">No stored auto-fill prices found.</td></tr>`; return; }
+        if (!keys.length) { tbody.innerHTML = `<tr><td colspan="4" class="text-muted text-center">No stored auto-fill prices found.</td></tr>`; return; }
         tbody.innerHTML = keys.map(k => `
             <tr>
                 <td><input type="text" value="${cartManager.escapeHtml(formatItemName(prices[k].originalName))}" onchange="inventoryPriceManager.updateManagementKey('${k}', 'name', this.value)"></td>
-                <td><input type="number" min="0" step="1" value="${prices[k].price}" onchange="inventoryPriceManager.updateManagementKey('${k}', 'price', this.value)"></td>
+                <td><input type="number" min="0" step="0.01" value="${prices[k].price || 0}" onchange="inventoryPriceManager.updateManagementKey('${k}', 'price', this.value)"></td>
+                <td><input type="number" min="0" step="0.01" value="${prices[k].costPrice || 0}" onchange="inventoryPriceManager.updateManagementKey('${k}', 'costPrice', this.value)"></td>
                 <td><button class="btn-danger" style="padding: 2px 8px;" onclick="inventoryPriceManager.deleteManagementKey('${k}')"><i class="fas fa-trash"></i></button></td>
             </tr>`).join('');
     }
@@ -612,9 +649,10 @@ class InventoryPriceManager {
             const newKey = newName.toLowerCase();
             const existingPrice = prices[key].price;
             delete prices[key];
-            prices[newKey] = { originalName: formatItemName(newName), price: existingPrice };
+            prices[newKey] = { originalName: formatItemName(newName), price: existingPrice, costPrice: prices[key].costPrice || 0 };
         }
         if (property === 'price') prices[key].price = Math.max(0, Number(value) || 0);
+        if (property === 'costPrice') prices[key].costPrice = Math.max(0, Number(value) || 0);
         this.saveAutoPrices(prices);
     }
     deleteManagementKey(key) {
@@ -725,7 +763,20 @@ class StockManager {
         if (fields.sellPrice) fields.sellPrice.value = item?.sellPrice ?? '';
         if (fields.qty) fields.qty.value = item?.qty ?? '';
         if (fields.threshold) fields.threshold.value = item?.lowStockThreshold ?? '';
+        inventoryPriceManager.renderStockFormSuggestions();
         form.classList.remove('hidden');
+    }
+
+    fillSuggestedStockPrices() {
+        const name = document.getElementById('stockNameInput')?.value.trim() || '';
+        const suggestion = inventoryPriceManager.lookupPrice(name);
+        if (!suggestion) return;
+        const savedItem = this.getStoredStock().some(item => String(item.barcode || '').trim() && String(item.name || '').trim().toLowerCase() === name.toLowerCase());
+        if (savedItem) return;
+        const sellPrice = document.getElementById('stockSellPriceInput');
+        const costPrice = document.getElementById('stockCostPriceInput');
+        if (sellPrice && Number(suggestion.price) > 0) sellPrice.value = Number(suggestion.price).toFixed(2);
+        if (costPrice && Number(suggestion.costPrice) > 0) costPrice.value = Number(suggestion.costPrice).toFixed(2);
     }
 
     closeStockItemForm() {
@@ -749,10 +800,11 @@ class StockManager {
             lowStockThreshold: Number(document.getElementById('stockThresholdInput')?.value || 0)
         };
 
-        if (!values.barcode || !values.name) return alert('Barcode and item name are required.');
-        if (!Number.isFinite(values.sellPrice) || values.sellPrice <= 0) return alert('Please enter a valid selling price.');
+        if (!values.name) return alert('Item name is required.');
+        if (!Number.isFinite(values.sellPrice) || values.sellPrice < 0) return alert('Please enter a valid selling price.');
 
         const items = this.getStoredStock();
+        if (!values.barcode) values.barcode = this.generateBarcode(items);
         const existingIndex = items.findIndex(item => String(item.barcode || '').toLowerCase() === values.barcode.toLowerCase() || String(item.name || '').toLowerCase() === values.name.toLowerCase());
 
         const preparedItem = {
@@ -775,11 +827,19 @@ class StockManager {
         }
 
         this.setStoredStock(items);
-        inventoryPriceManager.registerOrderingItem(preparedItem.name, preparedItem.sellPrice);
+        inventoryPriceManager.registerOrderingItem(preparedItem.name, preparedItem.sellPrice, preparedItem.costPrice);
         this.renderStockTable();
         this.closeStockItemForm();
         this.renderLowStockAlert();
         alert('Stock item saved successfully.');
+    }
+
+    generateBarcode(items = this.getStoredStock()) {
+        let barcode;
+        do {
+            barcode = `AUTO${Date.now()}${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
+        } while (items.some(item => String(item.barcode || '').toLowerCase() === barcode.toLowerCase()));
+        return barcode;
     }
 
     editStockItem(id) {
@@ -1042,6 +1102,14 @@ class StockManager {
         }
 
         const item = this.findItemByBarcodeOrName(value);
+        if (mode === 'stock') {
+            const barcodeInput = document.getElementById('stockBarcodeInput');
+            if (barcodeInput) barcodeInput.value = value;
+            const scannerStatus = document.getElementById('stockScannerStatus');
+            if (scannerStatus) scannerStatus.innerHTML = '<span class="status-success">Barcode captured. Complete and save the item.</span>';
+            this.closeScannerModal();
+            return;
+        }
         if (!item) {
             if (status) status.innerHTML = '<span class="status-error">Item not found in stock list.</span>';
             return;
@@ -1592,6 +1660,7 @@ window.onload = function () {
     cartManager.loadSavedCart();
     cartManager.render();
     inventoryPriceManager.renderProductSuggestions();
+    inventoryPriceManager.renderStockFormSuggestions();
     stockManager.renderStockTable();
     setupNavigationControls();
 
@@ -1603,6 +1672,7 @@ window.onload = function () {
     });
 
     document.querySelectorAll('input[type=text], input[type=number]').forEach(el => el.oninput = () => cartManager.updateUI());
+    document.getElementById('stockNameInput')?.addEventListener('input', () => stockManager.fillSuggestedStockPrices());
     document.getElementById('emailForm').addEventListener('submit', (e) => supportManager.handleEmailSubmit(e));
     ['stockScanBarcodeInput', 'saleBarcodeInput', 'stockScannerManualInput'].forEach(id => {
         const input = document.getElementById(id);

@@ -288,6 +288,9 @@ button { padding: 14px; border-radius: 10px; border: none; font-weight: bold; cu
 .stock-scanner-input-row { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
 .stock-scanner-input-row input { flex: 1; margin-bottom: 0; }
 .stock-scanner-input-row button { width: auto; margin-top: 0; }
+.stock-barcode-input-row { display: flex; gap: 8px; align-items: center; }
+.stock-barcode-input-row input { flex: 1; margin-bottom: 8px; }
+.stock-barcode-input-row button { width: auto; margin-top: 0; padding: 12px 15px; }
 .sale-workspace { max-width: 680px; }
 .sale-scan-row { display: flex; flex-wrap: nowrap; gap: 8px; align-items: center; overflow-x: auto; }
 .sale-scan-row input { flex: 1 1 auto; min-width: 180px; margin: 0; }
