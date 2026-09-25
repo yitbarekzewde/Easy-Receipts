@@ -154,6 +154,16 @@ button { padding: 14px; border-radius: 10px; border: none; font-weight: bold; cu
 .modal-high { z-index: 1002; }
 .modal-higher { z-index: 1003; }
 .modal-extra-high { z-index: 1001; }
+.store-item-modal { z-index: 10010; }
+.store-item-modal-content { width: min(620px, calc(100% - 24px)); max-height: calc(100vh - 24px); padding: 22px; border-radius: 8px; }
+.store-item-modal .close-modal { width: auto; margin: 0; padding: 0; border: 0; background: transparent; }
+.store-item-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+.store-item-grid input { margin-bottom: 0; }
+.store-barcode-row { display: flex; align-items: center; gap: 8px; }
+.store-barcode-row input { min-width: 0; flex: 1; margin: 0; }
+.store-barcode-row button, .store-item-camera button { width: auto; margin: 0; }
+.store-item-camera { grid-column: 1 / -1; display: flex; align-items: start; gap: 10px; }
+.store-item-camera video { width: min(100%, 360px); aspect-ratio: 16 / 9; object-fit: cover; border: 1px solid #cbd5e1; border-radius: 6px; background: #0f172a; }
 .close-modal { position: absolute; top: 10px; right: 15px; font-size: 24px; cursor: pointer; color: #64748b; }
 .close-modal:hover { color: #ef4444; }
 .profile-info-row { display: flex; align-items: center; gap: 16px; padding: 12px; background: #f8fafc; border-radius: 12px; margin-bottom: 15px; }
@@ -313,6 +323,11 @@ button { padding: 14px; border-radius: 10px; border: none; font-weight: bold; cu
     .downloaded-item > img { width: 64px; height: 88px; }
     .downloaded-item-actions { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; }
     .downloaded-item-actions button { flex: 1; min-width: 84px; }
+    .store-item-modal-content { padding: 18px; }
+}
+@media (max-width: 480px) {
+    .store-item-grid { grid-template-columns: minmax(0, 1fr); gap: 5px; }
+    .store-item-camera { flex-direction: column; }
 }
 @media print {
     body { padding: 0; }
@@ -404,14 +419,16 @@ button { padding: 14px; border-radius: 10px; border: none; font-weight: bold; cu
 
 /* Sticky Bottom Navigation Bar */
 body {
-    padding-bottom: 70px; /* Prevents sticky bar from overlapping content */
+    padding-bottom: 96px;
+    padding-bottom: calc(96px + env(safe-area-inset-bottom));
 }
 
 .sticky-bottom-nav {
     position: fixed;
     bottom: 0;
     left: 0;
-    width: 100%;
+    right: 0;
+    width: auto;
     background-color: #ffffff;
     border-top: 1px solid #e2e8f0;
     box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
@@ -419,6 +436,9 @@ body {
     justify-content: space-around;
     align-items: center;
     padding: 8px 0;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    min-height: 72px;
+    min-height: calc(72px + env(safe-area-inset-bottom, 0px));
     z-index: 10000;
 }
 

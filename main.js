@@ -713,11 +713,12 @@ class StockManager {
         const query = String(value || '').trim().toLowerCase();
         if (!query) return null;
         const items = this.getStoredStock();
+        const barcodeMatch = items.find(item => String(item.barcode || '').trim().toLowerCase() === query || String(item.caseBarcode || '').trim().toLowerCase() === query);
+        if (barcodeMatch) return barcodeMatch;
         return items.find(item => {
-            const barcodeMatch = String(item.barcode || '').toLowerCase() === query;
             const nameMatch = String(item.name || '').toLowerCase() === query;
             const containsName = String(item.name || '').toLowerCase().includes(query);
-            return barcodeMatch || nameMatch || containsName;
+            return nameMatch || containsName;
         }) || null;
     }
 
@@ -745,6 +746,8 @@ class StockManager {
         const formTitle = document.getElementById('stockFormTitle');
         const fields = {
             barcode: document.getElementById('stockBarcodeInput'),
+            caseBarcode: document.getElementById('stockCaseBarcodeInput'),
+            unitsPerBox: document.getElementById('stockUnitsPerBoxInput'),
             name: document.getElementById('stockNameInput'),
             category: document.getElementById('stockCategoryInput'),
             supplier: document.getElementById('stockSupplierInput'),
@@ -756,6 +759,8 @@ class StockManager {
 
         if (formTitle) formTitle.textContent = item ? 'Edit Stock Item' : 'Add Stock Item';
         if (fields.barcode) fields.barcode.value = item?.barcode || '';
+        if (fields.caseBarcode) fields.caseBarcode.value = item?.caseBarcode || '';
+        if (fields.unitsPerBox) fields.unitsPerBox.value = item?.unitsPerBox ?? 1;
         if (fields.name) fields.name.value = item?.name || '';
         if (fields.category) fields.category.value = item?.category || '';
         if (fields.supplier) fields.supplier.value = item?.supplier || '';
@@ -782,7 +787,7 @@ class StockManager {
     closeStockItemForm() {
         const form = document.getElementById('stockFormCard');
         if (form) form.classList.add('hidden');
-        ['stockBarcodeInput','stockNameInput','stockCategoryInput','stockSupplierInput','stockCostPriceInput','stockSellPriceInput','stockQtyInput','stockThresholdInput'].forEach(id => {
+        ['stockBarcodeInput','stockCaseBarcodeInput','stockUnitsPerBoxInput','stockNameInput','stockCategoryInput','stockSupplierInput','stockCostPriceInput','stockSellPriceInput','stockQtyInput','stockThresholdInput'].forEach(id => {
             const field = document.getElementById(id);
             if (field) field.value = '';
         });
@@ -791,6 +796,8 @@ class StockManager {
     saveStockItem() {
         const values = {
             barcode: document.getElementById('stockBarcodeInput')?.value.trim() || '',
+            caseBarcode: document.getElementById('stockCaseBarcodeInput')?.value.trim() || '',
+            unitsPerBox: Number(document.getElementById('stockUnitsPerBoxInput')?.value || 1),
             name: document.getElementById('stockNameInput')?.value.trim() || '',
             category: document.getElementById('stockCategoryInput')?.value.trim() || 'General',
             supplier: document.getElementById('stockSupplierInput')?.value.trim() || 'Unknown',
@@ -802,14 +809,22 @@ class StockManager {
 
         if (!values.name) return alert('Item name is required.');
         if (!Number.isFinite(values.sellPrice) || values.sellPrice < 0) return alert('Please enter a valid selling price.');
+        if (!Number.isInteger(values.unitsPerBox) || values.unitsPerBox < 1) return alert('Units per box must be a whole number greater than zero.');
 
         const items = this.getStoredStock();
         if (!values.barcode) values.barcode = this.generateBarcode(items);
+        if (values.caseBarcode && values.caseBarcode.toLowerCase() === values.barcode.toLowerCase()) return alert('The box barcode must differ from the item barcode.');
         const existingIndex = items.findIndex(item => String(item.barcode || '').toLowerCase() === values.barcode.toLowerCase() || String(item.name || '').toLowerCase() === values.name.toLowerCase());
+        const duplicateBarcode = items.some((item, index) => index !== existingIndex && [item.barcode, item.caseBarcode].some(barcode => String(barcode || '').trim().toLowerCase() === values.barcode.toLowerCase()));
+        if (duplicateBarcode) return alert('This item barcode is already assigned to another item.');
+        const duplicateCaseBarcode = values.caseBarcode && items.some((item, index) => index !== existingIndex && [item.barcode, item.caseBarcode].some(barcode => String(barcode || '').trim().toLowerCase() === values.caseBarcode.toLowerCase()));
+        if (duplicateCaseBarcode) return alert('This box barcode is already assigned to another item.');
 
         const preparedItem = {
             id: existingIndex >= 0 ? items[existingIndex].id : Date.now(),
             barcode: values.barcode,
+            caseBarcode: values.caseBarcode,
+            unitsPerBox: values.unitsPerBox,
             name: values.name,
             category: values.category,
             supplier: values.supplier,
@@ -1089,7 +1104,8 @@ class StockManager {
     lookupBarcodeFromInput() {
         const input = document.getElementById('stockScannerManualInput');
         const value = input?.value || '';
-        this.processBarcode(value, this.currentScanMode === 'sale' ? 'sale' : 'lookup');
+        const mode = ['stock', 'stockCase'].includes(this.currentScanMode) ? this.currentScanMode : this.currentScanMode === 'sale' ? 'sale' : 'lookup';
+        this.processBarcode(value, mode);
     }
 
     processBarcode(barcode, mode = 'cart') {
@@ -1101,27 +1117,29 @@ class StockManager {
             return;
         }
 
-        const item = this.findItemByBarcodeOrName(value);
-        if (mode === 'stock') {
-            const barcodeInput = document.getElementById('stockBarcodeInput');
+        if (mode === 'stock' || mode === 'stockCase') {
+            const barcodeInput = document.getElementById(mode === 'stockCase' ? 'stockCaseBarcodeInput' : 'stockBarcodeInput');
             if (barcodeInput) barcodeInput.value = value;
             const scannerStatus = document.getElementById('stockScannerStatus');
-            if (scannerStatus) scannerStatus.innerHTML = '<span class="status-success">Barcode captured. Complete and save the item.</span>';
+            if (scannerStatus) scannerStatus.innerHTML = `<span class="status-success">${mode === 'stockCase' ? 'Box barcode' : 'Item barcode'} captured. Complete and save the item.</span>`;
             this.closeScannerModal();
             return;
         }
+        const item = this.findItemByBarcodeOrName(value);
         if (!item) {
             if (status) status.innerHTML = '<span class="status-error">Item not found in stock list.</span>';
             return;
         }
 
         if (mode === 'cart' || mode === 'sale') {
+            const isBoxBarcode = String(item.caseBarcode || '').trim().toLowerCase() === value.toLowerCase();
+            const quantity = isBoxBarcode ? Math.max(1, Math.round(Number(item.unitsPerBox) || 1)) : 1;
             const existing = cartManager.cart.find(cartItem => cartItem.name.toLowerCase() === item.name.toLowerCase());
-            if (existing) { existing.qty += 1; }
-            else { cartManager.cart.push({ id: Date.now(), name: item.name, price: Number(item.sellPrice || 0), qty: 1 }); }
+            if (existing) { existing.qty += quantity; }
+            else { cartManager.cart.push({ id: Date.now(), name: item.name, price: Number(item.sellPrice || 0), qty: quantity }); }
             cartManager.render();
             this.renderSaleWorkspace();
-            if (status) status.innerHTML = `<span class="status-success">Added ${item.name} to cart.</span>`;
+            if (status) status.innerHTML = `<span class="status-success">Added ${quantity} x ${item.name} to cart.</span>`;
             const inputBox = document.getElementById(mode === 'sale' ? 'saleBarcodeInput' : 'stockScanBarcodeInput');
             if (inputBox) inputBox.value = '';
             return;

@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#172722">
+    <title>Point of Sale | Easy Receipt</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="stylesheet" href="sales.css">
+    <script src="sales.js" defer></script>
+</head>
+<body class="pos-page">
+    <header class="pos-header">
+        <a class="brand-lockup" href="index.html" aria-label="Easy Receipt home">
+            <span class="brand-mark"><i class="fas fa-receipt" aria-hidden="true"></i></span>
+            <span>Easy Receipt <small>POINT OF SALE</small></span>
+        </a>
+        <div class="header-tools">
+            <span class="register-status"><span></span> Register ready</span>
+            <a class="workspace-link" href="index.html"><i class="fas fa-arrow-left" aria-hidden="true"></i> Workspace</a>
+        </div>
+    </header>
+
+    <main class="pos-shell">
+        <div class="page-heading">
+            <div>
+                <p class="eyebrow">SALES DESK</p>
+                <h1>New sale</h1>
+            </div>
+            <label class="store-picker">
+                <span>Store</span>
+                <select id="posStore" aria-label="Select store"></select>
+            </label>
+        </div>
+
+        <div class="pos-layout">
+            <section class="work-column" aria-label="Products and customer">
+                <section class="customer-panel panel">
+                    <div class="panel-heading">
+                        <div class="heading-icon customer-icon"><i class="fas fa-user" aria-hidden="true"></i></div>
+                        <div><h2>Customer</h2><p>Select a customer for this receipt</p></div>
+                    </div>
+                    <div class="customer-controls">
+                        <select id="posCustomer" aria-label="Choose customer"></select>
+                        <button id="showCustomerForm" class="button button-quiet" type="button"><i class="fas fa-user-plus" aria-hidden="true"></i> New customer</button>
+                    </div>
+                    <p id="customerBalance" class="customer-balance" aria-live="polite"></p>
+                    <div id="customerForm" class="customer-form hidden">
+                        <input id="newCustomerName" type="text" placeholder="Customer name" autocomplete="name" aria-label="New customer name">
+                        <input id="newCustomerPhone" type="tel" placeholder="Phone (optional)" autocomplete="tel" aria-label="Customer phone">
+                        <input id="newCustomerEmail" type="email" placeholder="Email (optional)" autocomplete="email" aria-label="Customer email">
+                        <button id="saveCustomer" class="button button-dark" type="button">Save customer</button>
+                    </div>
+                </section>
+
+                <section class="scanner-panel panel" aria-label="Barcode scanner">
+                    <div class="scanner-title">
+                        <div>
+                            <p class="eyebrow">FAST ENTRY</p>
+                            <h2>Scan a product</h2>
+                        </div>
+                        <span class="scanner-hint"><i class="fas fa-barcode" aria-hidden="true"></i> Barcode or box barcode</span>
+                    </div>
+                    <div class="scanner-controls">
+                        <label class="scan-input-wrap" for="posBarcodeInput">
+                            <i class="fas fa-barcode" aria-hidden="true"></i>
+                            <input id="posBarcodeInput" type="text" placeholder="Scan barcode, then press Enter" autocomplete="off" autofocus>
+                        </label>
+                        <button id="addBarcode" class="button button-accent" type="button"><i class="fas fa-plus" aria-hidden="true"></i><span>Add</span></button>
+                        <button id="toggleCamera" class="button button-quiet icon-button" type="button" aria-label="Start camera scanner" title="Camera scanner"><i class="fas fa-camera" aria-hidden="true"></i></button>
+                    </div>
+                    <div id="cameraPanel" class="camera-panel hidden">
+                        <video id="cameraPreview" autoplay playsinline muted></video>
+                        <button id="stopCamera" class="button button-quiet" type="button"><i class="fas fa-stop" aria-hidden="true"></i> Stop camera</button>
+                    </div>
+                    <p id="scanStatus" class="scan-status" role="status" aria-live="polite">Ready to scan.</p>
+                </section>
+
+                <section class="catalog-panel panel">
+                    <div class="catalog-heading">
+                        <div><h2>Product catalog</h2><span id="productCount" class="muted-copy"></span></div>
+                        <label class="catalog-search" for="productSearch">
+                            <i class="fas fa-search" aria-hidden="true"></i>
+                            <input id="productSearch" type="search" placeholder="Search products" autocomplete="off">
+                        </label>
+                    </div>
+                    <div id="productGrid" class="product-grid" aria-live="polite"></div>
+                </section>
+            </section>
+
+            <aside class="checkout-column" aria-label="Current order and checkout">
+                <section class="cart-panel panel">
+                    <div class="cart-heading">
+                        <div><p class="eyebrow">CURRENT ORDER</p><h2>Cart <span id="cartCount" class="count-pill">0</span></h2></div>
+                        <button id="clearCart" class="text-button" type="button"><i class="fas fa-trash-alt" aria-hidden="true"></i> Clear</button>
+                    </div>
+                    <div id="cartLines" class="cart-lines"></div>
+                    <div id="emptyCart" class="empty-cart">
+                        <span class="empty-icon"><i class="fas fa-basket-shopping" aria-hidden="true"></i></span>
+                        <strong>Your cart is empty</strong>
+                        <span>Scan a barcode or choose a product</span>
+                    </div>
+
+                    <div class="adjustments-grid">
+                        <label>Discount %<input id="discountPercent" type="number" min="0" max="100" step="0.01" value="0"></label>
+                        <label>Tax %<input id="taxPercent" type="number" min="0" max="100" step="0.01" value="0"></label>
+                    </div>
+                    <div class="totals-list">
+                        <div><span>Subtotal</span><strong id="subtotalValue">R 0.00</strong></div>
+                        <div id="discountRow" class="hidden"><span>Discount</span><strong id="discountValue">- R 0.00</strong></div>
+                        <div id="taxRow" class="hidden"><span>Tax</span><strong id="taxValue">R 0.00</strong></div>
+                        <div class="grand-total"><span>Total due</span><strong id="totalValue">R 0.00</strong></div>
+                    </div>
+
+                    <div class="payment-section">
+                        <div class="payment-heading"><h3>Payment</h3><span>Split tender supported</span></div>
+                        <div class="payment-grid">
+                            <label>Cash received<input id="cashPaid" type="number" min="0" step="0.01" placeholder="0.00" inputmode="decimal"></label>
+                            <label>Card / online<input id="onlinePaid" type="number" min="0" step="0.01" placeholder="0.00" inputmode="decimal"></label>
+                        </div>
+                        <div class="balance-row"><span id="balanceLabel">Remaining</span><strong id="balanceValue">R 0.00</strong></div>
+                    </div>
+
+                    <button id="completeSale" class="button button-complete" type="button"><i class="fas fa-check" aria-hidden="true"></i> Complete sale</button>
+                    <button id="printReceipt" class="button button-quiet print-action hidden" type="button"><i class="fas fa-print" aria-hidden="true"></i> Print last receipt</button>
+                    <p id="checkoutStatus" class="checkout-status" role="status" aria-live="polite"></p>
+                </section>
+
+                <section class="recent-panel panel">
+                    <div class="recent-heading"><h2>Recent sales</h2><i class="fas fa-clock" aria-hidden="true"></i></div>
+                    <div id="recentSales" class="recent-sales"></div>
+                </section>
+            </aside>
+        </div>
+    </main>
+
+    <section id="printReceiptContent" class="print-receipt" aria-label="Receipt for printing"></section>
+</body>
+</html>

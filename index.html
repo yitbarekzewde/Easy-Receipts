@@ -72,6 +72,7 @@
                     <li onclick="handleMenuClick('drafts')"><i class="fas fa-save icon-primary"></i> Saved Drafts</li>
                     <li onclick="handleMenuClick('profile')"><i class="fas fa-user-circle icon-primary"></i> Manage
                         Profile</li>
+                    <li onclick="window.location.href='public/sales.html'"><i class="fas fa-cash-register icon-primary"></i> Point of Sale</li>
                     <li onclick="handleMenuClick('stock')"><i class="fas fa-boxes icon-primary"></i> Items & Stock Control</li>
                     <li onclick="handleMenuClick('priceMgmt')"><i class="fas fa-tags icon-primary"></i> Price & Product
                         Management</li>
@@ -397,6 +398,17 @@
                             </div>
                         </div>
                         <div>
+                            <label class="small-label" for="stockCaseBarcodeInput">Box Barcode</label>
+                            <div class="stock-barcode-input-row">
+                                <input type="text" id="stockCaseBarcodeInput" placeholder="Scan or type box barcode">
+                                <button type="button" class="btn-secondary" onclick="stockManager.openScannerModal('stockCase')" title="Scan box barcode with camera"><i class="fas fa-camera"></i></button>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="small-label" for="stockUnitsPerBoxInput">Units per Box</label>
+                            <input type="number" id="stockUnitsPerBoxInput" min="1" step="1" value="1" placeholder="12">
+                        </div>
+                        <div>
                             <label class="small-label" for="stockNameInput">Item Name</label>
                             <input type="text" id="stockNameInput" list="stockItemNameSuggestions" placeholder="Item name" oninput="stockManager.fillSuggestedStockPrices()" onchange="stockManager.fillSuggestedStockPrices()">
                             <datalist id="stockItemNameSuggestions"></datalist>
@@ -627,14 +639,14 @@
         <span>Ordering</span>
     </button>
 
-    <button class="bottom-nav-item sale-nav-item" onclick="stockManager.openSaleWorkspace()">
-        <i class="fas fa-cash-register"></i>
-        <span>Sale</span>
+    <button class="bottom-nav-item" onclick="window.location.href='public/sales.html'" aria-label="Open barcode scanner">
+        <i class="fas fa-barcode" aria-hidden="true"></i>
+        <span>Scan</span>
     </button>
 
-    <button class="bottom-nav-item" onclick="handleMenuClick('priceMgmt')">
-        <i class="fas fa-tags"></i>
-        <span>Price & Product</span>
+    <button class="bottom-nav-item" onclick="handleMenuClick('stock'); stockManager.openStockItemForm()" aria-label="Add a product to store stock">
+        <i class="fas fa-box-open" aria-hidden="true"></i>
+        <span>Add to Store</span>
     </button>
 </div>
 

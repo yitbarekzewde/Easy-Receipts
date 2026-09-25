@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <link rel="stylesheet" href="styles.css">
     <link rel="icon" href="favicon.ico" type="image/r-icon">
+    <style>
         .site-logo {
   width: 150px; /* Adjust as needed */
   height: auto;
@@ -71,6 +72,7 @@
                     <li onclick="handleMenuClick('drafts')"><i class="fas fa-save icon-primary"></i> Saved Drafts</li>
                     <li onclick="handleMenuClick('profile')"><i class="fas fa-user-circle icon-primary"></i> Manage
                         Profile</li>
+                    <li onclick="window.location.href='sales.html'"><i class="fas fa-cash-register icon-primary"></i> Point of Sale</li>
                     <li onclick="handleMenuClick('priceMgmt')"><i class="fas fa-tags icon-primary"></i> Price & Product
                         Management</li>
                     <li id="register-account-menu" onclick="window.location.href='reg-form.html'"><i class="fas fa-user-plus icon-primary"></i>
@@ -103,6 +105,30 @@
             <textarea id="bulkData" placeholder="Huletts 1kg&#10;500g&#10;Polony 2.5kg 1" rows="3"></textarea>
             <button class="btn-import" onclick="cartManager.importItems()">Process & Add</button>
             <div id="importStatus" class="status-message" aria-live="polite"></div>
+
+            <div class="stock-fast-scan mt-20">
+                <label class="section-label" for="boxBarcodeScanInput">Box Barcode Scan</label>
+                <div class="flex-gap-10">
+                    <input type="text" id="boxBarcodeScanInput" placeholder="Scan box barcode and press Enter" autocomplete="off" onkeydown="if(event.key === 'Enter'){event.preventDefault();cartManager.addScannedBox()}">
+                    <button type="button" class="btn-primary" onclick="cartManager.addScannedBox()">Add Box to Cart</button>
+                </div>
+                <div id="boxBarcodeScanStatus" class="status-message" aria-live="polite"></div>
+                <div class="form-grid mt-10">
+                    <div>
+                        <label class="small-label" for="boxBarcodeSetupInput">Box Barcode</label>
+                        <input type="text" id="boxBarcodeSetupInput" placeholder="Scan or type box barcode" autocomplete="off">
+                    </div>
+                    <div>
+                        <label class="small-label" for="boxItemNameInput">Item Name</label>
+                        <input type="text" id="boxItemNameInput" placeholder="Item name" autocomplete="off">
+                    </div>
+                    <div>
+                        <label class="small-label" for="boxUnitsPerInput">Units per Box</label>
+                        <input type="number" id="boxUnitsPerInput" min="1" step="1" value="1" placeholder="12">
+                    </div>
+                    <button type="button" class="btn-secondary" onclick="cartManager.saveBoxBarcode()">Save Box Barcode</button>
+                </div>
+            </div>
 
 
             <!-- Navigation Control Bar inside the circled area -->
@@ -445,15 +471,78 @@
         <span>Ordering</span>
     </button>
 
-    <button class="bottom-nav-item" onclick="shareReceiptAction()">
-        <i class="fab fa-whatsapp"></i>
-        <span>Share</span>
+    <button class="bottom-nav-item" onclick="window.location.href='sales.html'" aria-label="Open barcode scanner">
+        <i class="fas fa-barcode" aria-hidden="true"></i>
+        <span>Scan</span>
     </button>
 
-    <button class="bottom-nav-item" onclick="window.printReceiptOnly()">
-        <i class="fas fa-print"></i>
-        <span>Print</span>
+    <button class="bottom-nav-item" onclick="openStoreItemModal()" aria-label="Add a product to store stock">
+        <i class="fas fa-box-open" aria-hidden="true"></i>
+        <span>Add to Store</span>
     </button>
+</div>
+
+<div id="storeItemModal" class="modal store-item-modal" role="dialog" aria-modal="true" aria-labelledby="storeItemModalTitle" onclick="if(event.target === this) closeStoreItemModal()">
+    <div class="modal-content store-item-modal-content" onclick="event.stopPropagation()">
+        <button type="button" class="close-modal" aria-label="Close" onclick="closeStoreItemModal()">&times;</button>
+        <h3 class="modal-heading" id="storeItemModalTitle"><i class="fas fa-box-open"></i> Add to Store</h3>
+        <form id="storeItemForm" onsubmit="saveStoreItem(event)">
+            <div class="form-grid store-item-grid">
+                <div>
+                    <label class="small-label" for="storeItemBarcode">Product Barcode</label>
+                    <div class="store-barcode-row">
+                        <input type="text" id="storeItemBarcode" placeholder="Scan or type barcode" autocomplete="off">
+                        <button type="button" class="btn-secondary" onclick="startStoreItemCamera()" aria-label="Scan product barcode with camera" title="Scan with camera"><i class="fas fa-camera" aria-hidden="true"></i></button>
+                    </div>
+                </div>
+                <div id="storeItemCameraPanel" class="store-item-camera hidden">
+                    <video id="storeItemCameraVideo" autoplay playsinline muted></video>
+                    <button type="button" class="btn-secondary" onclick="stopStoreItemCamera()"><i class="fas fa-stop" aria-hidden="true"></i> Stop camera</button>
+                </div>
+                <div>
+                    <label class="small-label" for="storeItemName">Product Name</label>
+                    <input type="text" id="storeItemName" placeholder="Product name" required autocomplete="off">
+                </div>
+                <div>
+                    <label class="small-label" for="storeItemCategory">Category</label>
+                    <input type="text" id="storeItemCategory" placeholder="Category">
+                </div>
+                <div>
+                    <label class="small-label" for="storeItemSupplier">Supplier</label>
+                    <input type="text" id="storeItemSupplier" placeholder="Supplier">
+                </div>
+                <div>
+                    <label class="small-label" for="storeItemCost">Cost Price</label>
+                    <input type="number" id="storeItemCost" min="0" step="0.01" placeholder="0.00" inputmode="decimal">
+                </div>
+                <div>
+                    <label class="small-label" for="storeItemSell">Selling Price</label>
+                    <input type="number" id="storeItemSell" min="0" step="0.01" placeholder="0.00" required inputmode="decimal">
+                </div>
+                <div>
+                    <label class="small-label" for="storeItemQty">Opening Stock</label>
+                    <input type="number" id="storeItemQty" min="0" step="1" value="0" required inputmode="numeric">
+                </div>
+                <div>
+                    <label class="small-label" for="storeItemThreshold">Low-Stock Alert</label>
+                    <input type="number" id="storeItemThreshold" min="0" step="1" value="0" inputmode="numeric">
+                </div>
+                <div>
+                    <label class="small-label" for="storeItemCaseBarcode">Box Barcode</label>
+                    <input type="text" id="storeItemCaseBarcode" placeholder="Optional box barcode" autocomplete="off">
+                </div>
+                <div>
+                    <label class="small-label" for="storeItemCaseQty">Units per Box</label>
+                    <input type="number" id="storeItemCaseQty" min="1" step="1" value="1" required inputmode="numeric">
+                </div>
+            </div>
+            <p id="storeItemStatus" class="status-message" role="status" aria-live="polite"></p>
+            <div class="flex-gap-10 mt-10">
+                <button type="submit" class="btn-primary"><i class="fas fa-plus"></i> Save to Store</button>
+                <button type="button" class="btn-secondary" onclick="closeStoreItemModal()">Cancel</button>
+            </div>
+        </form>
+    </div>
 </div>
 
 <div id="shareOptionsModal" class="modal">

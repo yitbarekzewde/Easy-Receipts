@@ -660,6 +660,60 @@ class CartManager {
             firstPriceInput.focus();
         }
     }
+    getBoxBarcodes() {
+        try {
+            const mappings = JSON.parse(localStorage.getItem('p3_box_barcodes') || '[]');
+            return Array.isArray(mappings) ? mappings : [];
+        } catch (error) {
+            return [];
+        }
+    }
+    saveBoxBarcode() {
+        const barcode = document.getElementById('boxBarcodeSetupInput')?.value.trim() || '';
+        const name = document.getElementById('boxItemNameInput')?.value.trim() || '';
+        const unitsPerBox = Number(document.getElementById('boxUnitsPerInput')?.value || 0);
+        const status = document.getElementById('boxBarcodeScanStatus');
+        if (!barcode || !name || !Number.isInteger(unitsPerBox) || unitsPerBox < 1) {
+            if (status) status.innerHTML = '<span class="status-error">Enter a box barcode, item name, and whole units-per-box quantity.</span>';
+            return;
+        }
+
+        const mappings = this.getBoxBarcodes();
+        const existing = mappings.find(mapping => String(mapping.barcode || '').trim().toLowerCase() === barcode.toLowerCase());
+        if (existing) Object.assign(existing, { barcode, name, unitsPerBox });
+        else mappings.push({ barcode, name, unitsPerBox });
+        localStorage.setItem('p3_box_barcodes', JSON.stringify(mappings));
+        if (status) status.innerHTML = `<span class="status-success">Saved ${this.escapeHtml(barcode)} for ${this.escapeHtml(unitsPerBox)} x ${this.escapeHtml(name)}.</span>`;
+        document.getElementById('boxBarcodeSetupInput').value = '';
+        document.getElementById('boxItemNameInput').value = '';
+        document.getElementById('boxUnitsPerInput').value = '1';
+    }
+    addScannedBox() {
+        const input = document.getElementById('boxBarcodeScanInput');
+        const barcode = input?.value.trim() || '';
+        const status = document.getElementById('boxBarcodeScanStatus');
+        if (!barcode) {
+            if (status) status.innerHTML = '<span class="status-error">Scan or enter a box barcode.</span>';
+            return;
+        }
+
+        const mapping = this.getBoxBarcodes().find(item => String(item.barcode || '').trim().toLowerCase() === barcode.toLowerCase());
+        if (!mapping) {
+            if (status) status.innerHTML = '<span class="status-error">Box barcode not found. Save it with its item and box quantity first.</span>';
+            return;
+        }
+
+        const quantity = Math.max(1, Math.round(Number(mapping.unitsPerBox) || 1));
+        const price = inventoryPriceManager.lookupPrice(mapping.name)?.price || 0;
+        this.cart = this.cart.filter(item => item.name !== 'Sample Product');
+        const existing = this.cart.find(item => String(item.name || '').toLowerCase() === mapping.name.toLowerCase());
+        if (existing) existing.qty = Number(existing.qty || 0) + quantity;
+        else this.cart.push({ id: Math.floor(Date.now() + Math.random() * 1000), name: mapping.name, price, qty: quantity });
+        this.render();
+        if (status) status.innerHTML = `<span class="status-success">Added ${this.escapeHtml(quantity)} x ${this.escapeHtml(mapping.name)} to cart.</span>`;
+        input.value = '';
+        input.focus();
+    }
     escapeHtml(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;'); }
 
     render() {
@@ -953,6 +1007,171 @@ const inventoryPriceManager = new InventoryPriceManager();
 const cartManager = new CartManager();
 const supportManager = new SupportManager();
 Object.assign(window, { authManager, storeManager, customerManager, inventoryPriceManager, cartManager, supportManager });
+
+let storeItemCameraStream = null;
+
+window.openStoreItemModal = function() {
+    const modal = document.getElementById('storeItemModal');
+    const status = document.getElementById('storeItemStatus');
+    if (!modal) return;
+    if (status) {
+        status.textContent = '';
+        status.className = 'status-message';
+    }
+    modal.style.display = 'flex';
+    document.getElementById('storeItemBarcode')?.focus();
+};
+
+window.closeStoreItemModal = function() {
+    window.stopStoreItemCamera();
+    const modal = document.getElementById('storeItemModal');
+    if (modal) modal.style.display = 'none';
+};
+
+window.startStoreItemCamera = async function() {
+    const status = document.getElementById('storeItemStatus');
+    const panel = document.getElementById('storeItemCameraPanel');
+    const video = document.getElementById('storeItemCameraVideo');
+    if (!('BarcodeDetector' in window) || !navigator.mediaDevices?.getUserMedia) {
+        if (status) {
+            status.textContent = 'Camera scanning is not supported in this browser. Use a handheld barcode scanner or type the barcode.';
+            status.className = 'status-message status-error';
+        }
+        return;
+    }
+
+    try {
+        storeItemCameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        video.srcObject = storeItemCameraStream;
+        panel.classList.remove('hidden');
+        const detector = new BarcodeDetector({ formats: ['code_128', 'ean_13', 'qr_code', 'upc_a', 'code_39'] });
+        const scan = async () => {
+            if (!storeItemCameraStream) return;
+            try {
+                const matches = await detector.detect(video);
+                if (matches.length) {
+                    document.getElementById('storeItemBarcode').value = matches[0].rawValue;
+                    window.stopStoreItemCamera();
+                    document.getElementById('storeItemName')?.focus();
+                    if (status) {
+                        status.textContent = 'Product barcode captured.';
+                        status.className = 'status-message status-success';
+                    }
+                    return;
+                }
+            } catch (error) {
+                console.warn('Store item barcode scan failed:', error);
+            }
+            if (storeItemCameraStream) requestAnimationFrame(scan);
+        };
+        scan();
+    } catch (error) {
+        if (status) {
+            status.textContent = 'Camera access was blocked. Use a handheld barcode scanner or type the barcode.';
+            status.className = 'status-message status-error';
+        }
+    }
+};
+
+window.stopStoreItemCamera = function() {
+    if (storeItemCameraStream) storeItemCameraStream.getTracks().forEach(track => track.stop());
+    storeItemCameraStream = null;
+    const video = document.getElementById('storeItemCameraVideo');
+    if (video) video.srcObject = null;
+    document.getElementById('storeItemCameraPanel')?.classList.add('hidden');
+};
+
+window.saveStoreItem = function(event) {
+    event.preventDefault();
+    const status = document.getElementById('storeItemStatus');
+    const values = {
+        barcode: document.getElementById('storeItemBarcode').value.trim(),
+        name: document.getElementById('storeItemName').value.trim(),
+        category: document.getElementById('storeItemCategory').value.trim() || 'General',
+        supplier: document.getElementById('storeItemSupplier').value.trim() || 'Unknown',
+        costPrice: Number(document.getElementById('storeItemCost').value || 0),
+        sellPrice: Number(document.getElementById('storeItemSell').value),
+        qty: Number(document.getElementById('storeItemQty').value),
+        threshold: Number(document.getElementById('storeItemThreshold').value || 0),
+        caseBarcode: document.getElementById('storeItemCaseBarcode').value.trim(),
+        unitsPerBox: Number(document.getElementById('storeItemCaseQty').value)
+    };
+    const showError = message => {
+        status.textContent = message;
+        status.className = 'status-message status-error';
+    };
+
+    if (!values.name) return showError('Product name is required.');
+    if (![values.costPrice, values.sellPrice].every(Number.isFinite) || values.costPrice < 0 || values.sellPrice < 0) return showError('Enter valid non-negative prices.');
+    if (![values.qty, values.threshold, values.unitsPerBox].every(Number.isInteger) || values.qty < 0 || values.threshold < 0 || values.unitsPerBox < 1) return showError('Stock, alert, and box quantities must be whole numbers.');
+    if (values.barcode && values.caseBarcode && values.barcode.toLowerCase() === values.caseBarcode.toLowerCase()) return showError('Product and box barcodes must be different.');
+
+    let items;
+    try {
+        items = JSON.parse(localStorage.getItem('p3_stock_items') || '[]');
+        if (!Array.isArray(items)) items = [];
+    } catch (error) {
+        items = [];
+    }
+    const existingIndex = items.findIndex(item => (values.barcode && String(item.barcode || '').trim().toLowerCase() === values.barcode.toLowerCase()) || String(item.name || '').trim().toLowerCase() === values.name.toLowerCase());
+    const duplicateBarcode = items.some((item, index) => index !== existingIndex && [item.barcode, item.caseBarcode].some(code => values.barcode && String(code || '').trim().toLowerCase() === values.barcode.toLowerCase()));
+    const duplicateCaseBarcode = items.some((item, index) => index !== existingIndex && [item.barcode, item.caseBarcode].some(code => values.caseBarcode && String(code || '').trim().toLowerCase() === values.caseBarcode.toLowerCase()));
+    if (duplicateBarcode) return showError('This product barcode is already assigned to another item.');
+    if (duplicateCaseBarcode) return showError('This box barcode is already assigned to another item.');
+
+    const existing = existingIndex >= 0 ? items[existingIndex] : null;
+    const item = {
+        ...(existing || {}),
+        id: existing?.id ?? Date.now(),
+        barcode: values.barcode || existing?.barcode || '',
+        caseBarcode: values.caseBarcode || existing?.caseBarcode || '',
+        unitsPerBox: values.caseBarcode ? values.unitsPerBox : Math.max(1, Math.round(Number(existing?.unitsPerBox) || 1)),
+        name: values.name,
+        category: values.category,
+        supplier: values.supplier,
+        costPrice: values.costPrice,
+        sellPrice: values.sellPrice,
+        qty: Math.max(0, Number(existing?.qty || 0)) + values.qty,
+        lowStockThreshold: values.threshold,
+        updatedAt: new Date().toISOString()
+    };
+    if (existingIndex >= 0) items[existingIndex] = item;
+    else items.push(item);
+    localStorage.setItem('p3_stock_items', JSON.stringify(items));
+
+    let prices;
+    try {
+        prices = JSON.parse(localStorage.getItem('p3_auto_prices') || '{}');
+        if (!prices || Array.isArray(prices) || typeof prices !== 'object') prices = {};
+    } catch (error) {
+        prices = {};
+    }
+    prices[item.name.toLowerCase()] = { originalName: item.name, price: item.sellPrice, costPrice: item.costPrice };
+    localStorage.setItem('p3_auto_prices', JSON.stringify(prices));
+
+    let boxBarcodes;
+    try {
+        boxBarcodes = JSON.parse(localStorage.getItem('p3_box_barcodes') || '[]');
+        if (!Array.isArray(boxBarcodes)) boxBarcodes = [];
+    } catch (error) {
+        boxBarcodes = [];
+    }
+    if (item.caseBarcode) {
+        const mappingIndex = boxBarcodes.findIndex(mapping => String(mapping.barcode || '').trim().toLowerCase() === item.caseBarcode.toLowerCase());
+        const mapping = { barcode: item.caseBarcode, name: item.name, unitsPerBox: item.unitsPerBox };
+        if (mappingIndex >= 0) boxBarcodes[mappingIndex] = mapping;
+        else boxBarcodes.push(mapping);
+    }
+    localStorage.setItem('p3_box_barcodes', JSON.stringify(boxBarcodes));
+
+    document.getElementById('storeItemForm').reset();
+    document.getElementById('storeItemQty').value = '0';
+    document.getElementById('storeItemThreshold').value = '0';
+    document.getElementById('storeItemCaseQty').value = '1';
+    status.textContent = existing ? `Added ${values.qty} units to ${item.name}. Stock is now ${item.qty}.` : `${item.name} added to store stock.`;
+    status.className = 'status-message status-success';
+    document.getElementById('storeItemBarcode').focus();
+};
 
 function setupNavigationControls() {
     const shiftButton = document.getElementById('btn-shift');
