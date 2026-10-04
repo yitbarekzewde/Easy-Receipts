@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" role="img" aria-labelledby="title">
+  <title id="title">Easy Receipt</title>
+  <rect width="40" height="40" rx="10" fill="#fff"/>
+  <path d="M12 7h16v23l-3-2-3 2-3-2-3 2-4-2V7Z" fill="#13875d"/>
+  <path d="M16 13h8M16 18h8M16 23h4" fill="none" stroke="#fff" stroke-linecap="round" stroke-width="2"/>
+  <circle cx="28" cy="28" r="8" fill="#f28b32" stroke="#fff" stroke-width="2"/>
+  <path d="m24.5 28 2.2 2.2 4.3-4.5" fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/>
+</svg>

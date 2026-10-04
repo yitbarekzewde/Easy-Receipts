@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#176b4b">
+  <title>Shared Receipt | Easy Receipt</title>
+  <link rel="icon" href="easy-receipt-logo.svg" type="image/svg+xml">
+  <style>
+    :root { color-scheme: light; --ink: #19352a; --muted: #64756c; --green: #176b4b; --line: #e4ebe6; --orange: #dc772d; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; padding: 24px 16px 40px; color: var(--ink); background: radial-gradient(ellipse at 50% 0, #e5f3e9 0, transparent 46%), #f4f7f4; font: 15px/1.5 "Trebuchet MS", "Segoe UI", sans-serif; }
+    .page { width: min(760px, 100%); margin: 0 auto; }
+    .masthead { display: flex; align-items: center; gap: 10px; margin: 0 0 24px; color: var(--green); font-size: 14px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+    .masthead img { width: 36px; height: 36px; }
+    .receipt { overflow: hidden; border: 1px solid #dce6df; border-radius: 8px; background: #fff; box-shadow: 0 14px 36px rgba(30, 65, 45, .09); }
+    .receipt-head { padding: 25px 28px 20px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
+    h1 { margin: 0; font-size: 24px; line-height: 1.2; }
+    .store { margin-top: 6px; color: var(--muted); font-size: 14px; }
+    .reference { text-align: right; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+    .reference strong { display: block; color: var(--ink); font-size: 13px; }
+    .receipt-body { padding: 24px 28px; }
+    .customer { margin: 0 0 20px; color: var(--muted); }
+    .customer strong { color: var(--ink); }
+    .items { width: 100%; border-collapse: collapse; }
+    .items th { padding: 10px 8px; color: var(--muted); border-bottom: 1px solid var(--line); font-size: 11px; text-align: left; text-transform: uppercase; }
+    .items td { padding: 12px 8px; border-bottom: 1px solid #edf1ee; vertical-align: top; }
+    .items .number { text-align: right; white-space: nowrap; }
+    .totals { width: min(330px, 100%); margin: 18px 0 0 auto; }
+    .total-row { display: flex; justify-content: space-between; gap: 20px; padding: 6px 0; color: var(--muted); }
+    .total-row strong { color: var(--ink); font-weight: 700; }
+    .total-row.grand { margin-top: 8px; padding: 13px 0 8px; border-top: 2px solid var(--ink); color: var(--ink); font-size: 18px; font-weight: 800; }
+    .receipt-foot { padding: 14px 28px; color: var(--muted); background: #f8faf8; border-top: 1px solid var(--line); font-size: 12px; }
+    .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+    button { min-height: 42px; padding: 0 16px; border: 1px solid var(--green); border-radius: 5px; color: #fff; background: var(--green); font: inherit; font-weight: 700; cursor: pointer; }
+    button.secondary { color: var(--green); background: #fff; }
+    button:hover { filter: brightness(.95); }
+    .status { min-height: 24px; margin: 10px 0 0; color: var(--green); text-align: right; font-size: 13px; }
+    .error { padding: 36px 24px; text-align: center; }
+    .error h1 { margin-bottom: 10px; }
+    .error p { color: var(--muted); }
+    [hidden] { display: none !important; }
+    @media (max-width: 540px) {
+      body { padding: 16px 12px 28px; }
+      .receipt-head, .receipt-body { padding: 19px 16px; }
+      .receipt-head { flex-direction: column; gap: 8px; }
+      .reference { text-align: left; }
+      .items th, .items td { padding: 9px 5px; font-size: 13px; }
+      .items th { font-size: 10px; }
+      .actions { display: grid; grid-template-columns: 1fr 1fr; }
+      button { padding: 0 10px; }
+      .status { text-align: center; }
+    }
+    @media print {
+      body { padding: 0; background: #fff; }
+      .page { width: 100%; }
+      .masthead, .actions, .status { display: none; }
+      .receipt { border: 0; box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="masthead"><img src="easy-receipt-logo.svg" alt=""><span>Easy Receipt</span></div>
+    <section class="receipt" id="receipt" hidden aria-live="polite">
+      <header class="receipt-head">
+        <div><h1>Receipt</h1><div class="store" id="store"></div></div>
+        <div class="reference"><strong id="reference"></strong><span id="date"></span></div>
+      </header>
+      <div class="receipt-body">
+        <p class="customer" id="customer" hidden></p>
+        <table class="items">
+          <thead><tr><th>Item</th><th class="number">Qty</th><th class="number">Each</th><th class="number">Amount</th></tr></thead>
+          <tbody id="items"></tbody>
+        </table>
+        <div class="totals" id="totals"></div>
+      </div>
+      <footer class="receipt-foot">Thank you for your purchase.</footer>
+    </section>
+    <section class="error" id="error" hidden>
+      <h1>Receipt link unavailable</h1>
+      <p>This link is incomplete or invalid. Ask the sender to share the receipt again.</p>
+    </section>
+    <div class="actions" id="actions" hidden>
+      <button class="secondary" id="print" type="button">Print receipt</button>
+      <button id="share" type="button">Share receipt</button>
+    </div>
+    <p class="status" id="status" aria-live="polite"></p>
+  </main>
+  <script>
+    const text = (value, limit = 160) => String(value ?? '').trim().slice(0, limit);
+    const number = value => Number.isFinite(Number(value)) ? Number(value) : 0;
+    const money = value => 'R ' + number(value).toFixed(2);
+
+    function decodePayload() {
+      const encoded = new URLSearchParams(location.hash.slice(1)).get('r');
+      if (!encoded || encoded.length > 120000) return null;
+      const base64 = encoded.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - encoded.length % 4) % 4);
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+      const payload = JSON.parse(new TextDecoder().decode(bytes));
+      if (payload.v !== 1 || !text(payload.id, 80) || !Array.isArray(payload.items) || payload.items.length > 500) return null;
+      return payload;
+    }
+
+    function addTotal(container, label, value, grand = false) {
+      const row = document.createElement('div');
+      row.className = grand ? 'total-row grand' : 'total-row';
+      const name = document.createElement('span');
+      name.textContent = label;
+      const amount = document.createElement('strong');
+      amount.textContent = money(value);
+      row.append(name, amount);
+      container.appendChild(row);
+    }
+
+    function render(payload) {
+      document.getElementById('store').textContent = text(payload.store, 120) || 'Easy Receipt';
+      document.getElementById('reference').textContent = 'Receipt #' + text(payload.id, 80);
+      const date = new Date(payload.createdAt);
+      document.getElementById('date').textContent = Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
+      const customer = text(payload.customer, 120);
+      if (customer) {
+        const customerLine = document.getElementById('customer');
+        customerLine.textContent = 'Customer: ' + customer;
+        customerLine.hidden = false;
+      }
+
+      const rows = document.getElementById('items');
+      payload.items.forEach(item => {
+        const row = document.createElement('tr');
+        [text(item.name, 160), String(Math.max(0, number(item.qty))), money(item.price), money(number(item.price) * number(item.qty))].forEach((value, index) => {
+          const cell = document.createElement('td');
+          cell.textContent = value;
+          if (index > 0) cell.className = 'number';
+          row.appendChild(cell);
+        });
+        rows.appendChild(row);
+      });
+
+      const totals = document.getElementById('totals');
+      addTotal(totals, 'Subtotal', payload.subtotal);
+      if (number(payload.discount) > 0) addTotal(totals, 'Discount', -number(payload.discount));
+      if (number(payload.tax) > 0) addTotal(totals, 'Tax', payload.tax);
+      addTotal(totals, 'Total', payload.total, true);
+      if (number(payload.paid) > 0) {
+        addTotal(totals, 'Paid', payload.paid);
+        const balance = number(payload.change);
+        addTotal(totals, balance >= 0 ? 'Change' : 'Amount due', Math.abs(balance));
+      }
+      document.getElementById('receipt').hidden = false;
+      document.getElementById('actions').hidden = false;
+    }
+
+    try {
+      const payload = decodePayload();
+      if (!payload) throw new Error('Invalid receipt.');
+      render(payload);
+    } catch (error) {
+      document.getElementById('error').hidden = false;
+    }
+
+    document.getElementById('print').addEventListener('click', () => window.print());
+    document.getElementById('share').addEventListener('click', async () => {
+      const status = document.getElementById('status');
+      try {
+        if (navigator.share) await navigator.share({ title: 'Easy Receipt', text: 'Here is your receipt.', url: location.href });
+        else {
+          await navigator.clipboard.writeText(location.href);
+          status.textContent = 'Receipt link copied.';
+        }
+      } catch (error) {
+        if (error.name !== 'AbortError') status.textContent = 'Could not share this link. Copy it from your browser address bar.';
+      }
+    });
+  </script>
+</body>
+</html>

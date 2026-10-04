@@ -167,6 +167,8 @@
         import { auth } from './firebase-config.js';
         import { signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js';
 
+        const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz-UEZIY0HMOKArHj_t921hP3oXU2icU9rll0-Id5k35oAxVQBRjDZQdpdMZ6C1ZS5dag/exec';
+
         //check if the user is already logged in and redirect straight into the app if they are
         if (localStorage.getItem('isLoggedIn') === 'true') {
             window.location.href = 'index.html';
@@ -205,10 +207,24 @@
                     provider: 'email'
                 }));
                 logActivity(credential.user.email, 'Logged In', 'Signed in successfully');
+                await notifyAuthEvent('login-success', { idToken: await credential.user.getIdToken() });
                 window.location.href = 'index.html';
             } catch (error) {
                 logActivity(email, 'Failed Login', 'Incorrect email or password');
+                void notifyAuthEvent('login-failed', { email: email });
                 alert('Incorrect email or password. Please try again.');
+            }
+        }
+
+        async function notifyAuthEvent(event, details) {
+            try {
+                await fetch(APPS_SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify(Object.assign({ action: 'notifyAuthEvent', event: event }, details))
+                });
+            } catch (error) {
+                console.warn('Could not send sign-in security notification.');
             }
         }
 

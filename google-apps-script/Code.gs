@@ -45,6 +45,8 @@ function dispatch_(payload) {
       return sendResetOtp_(payload.email);
     case 'resetPassword':
       return resetPassword_(payload.email, payload.otp, payload.newPassword);
+    case 'notifyAuthEvent':
+      return sendAuthNotification_(payload);
     case 'sendSupportEmail':
       return sendSupportEmail_(payload);
     case 'sendReceiptEmail':
@@ -71,13 +73,46 @@ function sendOtp_(emailValue, purpose) {
   const subject = isReset ? 'Your Easy Receipt password reset code' : 'Verify your Easy Receipt email';
   const body = isReset
     ? 'Your Easy Receipt password reset code is ' + otp + '. It expires in 10 minutes. If you did not request this, you can ignore this email.'
-    : 'Your Easy Receipt email verification code is ' + otp + '. It expires in 10 minutes.';
+    : 'Your Easy Receipt account has been created and is awaiting email verification. Your verification code is ' + otp + '. It expires in 10 minutes.';
 
   ensureMailQuota_();
   MailApp.sendEmail({ to: email, subject: subject, body: body, name: 'Easy Receipt' });
   cache.put(key, JSON.stringify(record), CONFIG.OTP_TTL_SECONDS);
   cache.put(cooldownKey, '1', CONFIG.OTP_RESEND_SECONDS);
   return { success: true, message: isReset ? 'Reset code sent.' : 'Verification code sent.' };
+}
+
+function sendAuthNotification_(payload) {
+  const event = String(payload.event || '');
+  let email;
+  let subject;
+  let message;
+
+  if (event === 'login-success') {
+    const idToken = String(payload.idToken || '');
+    if (!idToken || idToken.length > 10000) throw publicError_('Invalid sign-in notification.');
+    const response = identityToolkitRequest_('accounts:lookup', { idToken: idToken });
+    const users = response && response.users ? response.users : [];
+    const user = users.length ? users[0] : null;
+    if (!user || !user.email || !user.emailVerified) throw publicError_('Verified sign-in required.');
+    email = normalizeEmail_(user.email);
+    enforceRateLimit_('auth-login-success', email, 5, 3600);
+    subject = 'New sign-in to your Easy Receipt account';
+    message = 'A successful sign-in to your Easy Receipt account was just detected. If this was not you, reset your password and contact support.';
+  } else if (event === 'login-failed') {
+    email = normalizeEmail_(payload.email);
+    const user = lookupFirebaseUser_(email);
+    if (!user || !user.emailVerified) return { success: true, message: 'Notification skipped.' };
+    enforceRateLimit_('auth-login-failed', email, 3, 21600);
+    subject = 'Unsuccessful sign-in attempt for Easy Receipt';
+    message = 'An unsuccessful sign-in attempt was made for your Easy Receipt account. If this was not you, use the password reset page to secure your account.';
+  } else {
+    throw publicError_('Unknown authentication event.');
+  }
+
+  ensureMailQuota_();
+  MailApp.sendEmail({ to: email, subject: subject, body: message, name: 'Easy Receipt' });
+  return { success: true, message: 'Security notification sent.' };
 }
 
 function sendResetOtp_(emailValue) {

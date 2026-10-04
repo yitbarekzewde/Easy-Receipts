@@ -1,6 +1,7 @@
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzzEI6x6vehKW1CijCcGw-7zmLt0SRqLBVBlWqxehwfJP5X56I7T2vTBb45JEXzb4-hlA/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz-UEZIY0HMOKArHj_t921hP3oXU2icU9rll0-Id5k35oAxVQBRjDZQdpdMZ6C1ZS5dag/exec';
 const CUSTOMER_RECEIPT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxnzc70hmMw9G8fIPRX1eiypQfglG5Yw9in3XLVPGDx02GOzk6ibMnR2y7M7WfeaDdpUA/exec';
 const SUPPORT_ATTACHMENTS_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwojlEIYRaWg59eAwlR_3czYVDN1lrJCw8kcj13sJC4z1etfE3qj4mm-yXEMapOGWmorw/exec';
+let allowDeviceBackExit = false;
 
 function msg(message, type = 'info') {
     const existing = document.getElementById('app-message');
@@ -775,6 +776,7 @@ class CartManager {
     }
 
     updateUI() {
+        if (this.cart.length === 0) window.activeReceiptShareSnapshot = null;
         const receiptBox = document.getElementById('receipt-box'); if (!receiptBox) return;
         const data = this.calculateTotals();
         let storeName = document.getElementById('storeSelect').value || "My Store";
@@ -1112,7 +1114,7 @@ window.startStoreItemCamera = async function() {
                     storeItemCameraAbsentSince = 0;
                 } else if (storeItemCameraLastBarcode) {
                     if (!storeItemCameraAbsentSince) storeItemCameraAbsentSince = Date.now();
-                    else if (Date.now() - storeItemCameraAbsentSince >= 700) {
+                    else if (Date.now() - storeItemCameraAbsentSince >= 1500) {
                         storeItemCameraLastBarcode = '';
                         storeItemCameraAbsentSince = 0;
                     }
@@ -1326,8 +1328,10 @@ window.onload = function () {
     cartManager.loadSavedCart();
     cartManager.render();
     setupNavigationControls();
+    setupDeviceBackNavigation();
 
     window.addEventListener('beforeunload', event => {
+        if (allowDeviceBackExit) return;
         if (!cartManager.cart.some(item => item.name !== 'Sample Product')) return;
         cartManager.persistCart();
         event.preventDefault();
@@ -1337,6 +1341,77 @@ window.onload = function () {
     document.querySelectorAll('input[type=text], input[type=number]').forEach(el => el.oninput = () => cartManager.updateUI());
     document.getElementById('emailForm').addEventListener('submit', (e) => supportManager.handleEmailSubmit(e));
 };
+
+function setupDeviceBackNavigation() {
+    if (!window.history || typeof window.history.pushState !== 'function') return;
+    const guardedUrl = window.location.href;
+    const pushBackGuard = () => window.history.pushState({ easyReceiptBackGuard: true }, '', guardedUrl);
+    try { pushBackGuard(); } catch (error) { console.warn('Device back navigation guard unavailable:', error); return; }
+
+    window.addEventListener('pageshow', () => { allowDeviceBackExit = false; });
+    window.addEventListener('popstate', () => {
+        if (allowDeviceBackExit) return;
+        if (window.location.href !== guardedUrl) return;
+        if (closeTopmostAppLayer()) {
+            pushBackGuard();
+            return;
+        }
+
+        const hasActiveCart = cartManager.cart.some(item => item.name !== 'Sample Product');
+        const prompt = hasActiveCart
+            ? 'You have an active sale. Save it and leave Easy Receipt?'
+            : 'Exit Easy Receipt?';
+        if (!window.confirm(prompt)) {
+            pushBackGuard();
+            return;
+        }
+
+        if (hasActiveCart) cartManager.persistCart();
+        allowDeviceBackExit = true;
+        window.setTimeout(() => { allowDeviceBackExit = false; }, 1000);
+        window.history.back();
+    });
+}
+
+function closeTopmostAppLayer() {
+    const resumeModal = document.getElementById('autoResumeModal');
+    if (resumeModal) { resumeModal.remove(); return true; }
+
+    const openModals = Array.from(document.querySelectorAll('.modal, .login-modal, .modal-overlay'))
+        .filter(element => {
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' && style.visibility !== 'hidden' && !element.classList.contains('hidden');
+        });
+    if (openModals.length) {
+        const modal = openModals[openModals.length - 1];
+        switch (modal.id) {
+            case 'viewsModal': closeViewsModal(); break;
+            case 'stockScannerModal': window.stockManager?.closeScannerModal?.(); break;
+            case 'saleWorkspaceModal': window.stockManager?.closeSaleWorkspace?.(); break;
+            case 'shareOptionsModal': closeShareOptions(); break;
+            case 'authModal': authManager.closeAuthModal(); break;
+            case 'receiptEmailModal': closeReceiptEmail(); break;
+            case 'receiptImageModal': modal.style.display = 'none'; break;
+            case 'storeItemModal': window.closeStoreItemModal?.(); break;
+            case 'phoneModal': modal.style.display = 'none'; break;
+            case 'login': modal.style.display = 'none'; break;
+            default: modal.style.display = 'none';
+        }
+        return true;
+    }
+
+    const supportPanel = document.getElementById('contactUsEmail');
+    if (supportPanel && !supportPanel.classList.contains('hidden')) {
+        supportPanel.classList.add('hidden');
+        return true;
+    }
+    const dropdown = document.getElementById('dropdown');
+    if (dropdown?.classList.contains('show')) {
+        dropdown.classList.remove('show');
+        return true;
+    }
+    return false;
+}
 
 function closeViewsModal() {
     // Automatically capture a draft backup if the cart has active rows before hiding the workspace view panel
@@ -1853,6 +1928,7 @@ window.shareReceiptAction = function() {
     } else {
         text += `*AMOUNT DUE:* R ${Math.abs(totals.change).toFixed(2)}\n`;
     }
+    text += `\nView receipt: ${window.getReceiptShareLink()}`;
 
     const customerName = document.getElementById('client')?.value.trim() || '';
     const selectedId = document.getElementById('customerSelect')?.value;
@@ -1880,7 +1956,56 @@ window.getReceiptShareText = function() {
     const store = document.getElementById('storeSelect')?.value || 'Easy Receipt';
     const items = cartManager.cart.map(item => `${item.name} (x${item.qty}) - R ${(parseFloat(item.price || 0) * item.qty).toFixed(2)}`).join('\n');
     const balance = totals.change >= 0 ? `CHANGE/DEPOSIT: R ${totals.change.toFixed(2)}` : `AMOUNT DUE: R ${Math.abs(totals.change).toFixed(2)}`;
-    return `${store} - Official Receipt\nDate: ${new Date().toLocaleString()}\nClient: ${client}\n---------------------------\n${items}\n---------------------------\nTOTAL BILL: R ${totals.total.toFixed(2)}\nPAID: R ${totals.totalPaid.toFixed(2)}\n${balance}`;
+    return `${store} - Official Receipt\nDate: ${new Date().toLocaleString()}\nClient: ${client}\n---------------------------\n${items}\n---------------------------\nTOTAL BILL: R ${totals.total.toFixed(2)}\nPAID: R ${totals.totalPaid.toFixed(2)}\n${balance}\n\nView receipt: ${window.getReceiptShareLink()}`;
+};
+
+window.getReceiptShareLink = function() {
+    if (!window.cartManager || cartManager.cart.length === 0) return '';
+    const totals = cartManager.calculateTotals();
+    const receiptData = {
+        store: document.getElementById('storeSelect')?.value || 'Easy Receipt',
+        customer: document.getElementById('client')?.value.trim() || '',
+        items: cartManager.cart.map(item => ({
+            name: String(item.name || 'Item'),
+            qty: Math.max(0, Number(item.qty) || 0),
+            price: Math.max(0, Number(item.price) || 0)
+        })),
+        subtotal: totals.sub,
+        discount: totals.discountAmt,
+        tax: totals.txVal,
+        total: totals.total,
+        paid: totals.totalPaid,
+        change: totals.change
+    };
+    const signature = JSON.stringify(receiptData);
+    let snapshot = window.activeReceiptShareSnapshot;
+    if (!snapshot || snapshot.signature !== signature) {
+        const uniqueId = window.crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+        snapshot = {
+            signature: signature,
+            payload: Object.assign({ v: 1, id: `ER-${uniqueId}`, createdAt: new Date().toISOString() }, receiptData)
+        };
+        window.activeReceiptShareSnapshot = snapshot;
+    }
+
+    const bytes = new TextEncoder().encode(JSON.stringify(snapshot.payload));
+    let binary = '';
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+    }
+    const encoded = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+    return `${new URL('shared-receipt.html', window.location.href).href}#r=${encoded}`;
+};
+
+window.copyReceiptLink = async function() {
+    const receiptLink = window.getReceiptShareLink();
+    if (!receiptLink) return alert('Cart is empty! Add items before sharing.');
+    try {
+        await navigator.clipboard.writeText(receiptLink);
+        alert('Receipt link copied to the clipboard.');
+    } catch (error) {
+        window.prompt('Copy this receipt link:', receiptLink);
+    }
 };
 
 window.downloadReceiptText = function() {
@@ -1904,8 +2029,11 @@ window.shareReceiptPng = async function() {
         const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
         if (!blob) throw new Error('Could not create receipt image.');
         const file = new File([blob], `receipt-${Date.now()}.png`, { type: 'image/png' });
-        if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
-            await navigator.share({ title: 'Receipt', files: [file] });
+        const receiptLink = window.getReceiptShareLink();
+        if (navigator.share) {
+            const shareData = { title: 'Receipt', text: `View your receipt: ${receiptLink}`, url: receiptLink, files: [file] };
+            if (!navigator.canShare || navigator.canShare({ files: [file] })) await navigator.share(shareData);
+            else await navigator.share({ title: shareData.title, text: shareData.text, url: shareData.url });
             return;
         }
         const link = document.createElement('a');
@@ -1940,8 +2068,11 @@ window.shareReceiptPdf = async function() {
         pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, canvas.width, canvas.height);
         const blob = pdf.output('blob');
         const file = new File([blob], `receipt-${Date.now()}.pdf`, { type: 'application/pdf' });
-        if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
-            await navigator.share({ title: 'Receipt', files: [file] });
+        const receiptLink = window.getReceiptShareLink();
+        if (navigator.share) {
+            const shareData = { title: 'Receipt', text: `View your receipt: ${receiptLink}`, url: receiptLink, files: [file] };
+            if (!navigator.canShare || navigator.canShare({ files: [file] })) await navigator.share(shareData);
+            else await navigator.share({ title: shareData.title, text: shareData.text, url: shareData.url });
             return;
         }
         const link = document.createElement('a');
@@ -1960,7 +2091,9 @@ window.shareReceiptPdf = async function() {
 };
 
 window.shareReceiptTelegram = function() {
-    window.open(`https://t.me/share/url?url=&text=${encodeURIComponent(getReceiptShareText())}`, '_blank');
+    const receiptLink = window.getReceiptShareLink();
+    const text = `Receipt from ${document.getElementById('storeSelect')?.value || 'Easy Receipt'}`;
+    window.open(`https://t.me/share/url?url=${encodeURIComponent(receiptLink)}&text=${encodeURIComponent(text)}`, '_blank');
 };
 
 window.shareReceiptNative = async function() {
@@ -1996,6 +2129,7 @@ window.openShareOptions = function() {
         <span class="close-modal" onclick="document.getElementById('shareOptionsModal').remove()">&times;</span>
         <h3 class="modal-heading"><i class="fas fa-share-alt"></i> Share Receipt</h3>
         <div class="flex-gap-10">
+            <button class="btn-secondary" onclick="copyReceiptLink(); document.getElementById('shareOptionsModal').remove()"><i class="fas fa-link"></i> Copy Receipt Link</button>
             <button class="btn-share" onclick="shareReceiptAction(); document.getElementById('shareOptionsModal').remove()"><i class="fab fa-whatsapp"></i> WhatsApp</button>
             <button class="btn-primary" onclick="openReceiptEmail(); document.getElementById('shareOptionsModal').remove()"><i class="fas fa-envelope"></i> Email</button>
             <button class="btn-primary" onclick="shareReceiptTelegram(); document.getElementById('shareOptionsModal').remove()"><i class="fab fa-telegram"></i> Telegram</button>
@@ -2042,7 +2176,7 @@ window.sendReceiptByEmail = async function() {
             toEmail: emailInput.value.trim(),
             email: emailInput.value.trim(),
             subject: document.getElementById('receiptEmailSubject').value.trim() || 'Your receipt from Easy Receipt',
-            message: `Receipt from ${document.getElementById('storeSelect').value || 'Easy Receipt'}. Please see the attached receipt.`,
+            message: `Receipt from ${document.getElementById('storeSelect').value || 'Easy Receipt'}. Please see the attached receipt and view it online: ${window.getReceiptShareLink()}`,
             storeName: document.getElementById('storeSelect').value || 'Easy Receipt',
             fileData: canvas.toDataURL('image/png').split(',')[1],
             fileName: 'receipt.png',
