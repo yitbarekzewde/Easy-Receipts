@@ -196,7 +196,7 @@
         import { auth } from './firebase-config.js';
         import { createUserWithEmailAndPassword, updateProfile, signOut } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js';
 
-        const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyvSKWrf9RYexa6nySHIQwr2JP-rtqk4k_vWCAJh6GumAPHnZEQLDosVpM7FbDxgq_KYw/exec';
+        const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzzEI6x6vehKW1CijCcGw-7zmLt0SRqLBVBlWqxehwfJP5X56I7T2vTBb45JEXzb4-hlA/exec';
         let registrationInProgress = false;
 
         document.getElementById('reg-form').addEventListener('submit', function (event) {
@@ -232,7 +232,7 @@
             try {
                 var credential = await createUserWithEmailAndPassword(auth, email, password);
                 await updateProfile(credential.user, { displayName: username });
-                var otpResult = await sendOTP(email);
+                var otpResult = await sendRegistrationOTP(email);
                 if (!otpResult || !otpResult.success) {
                     throw new Error(otpResult && otpResult.message ? otpResult.message : 'Could not send verification code.');
                 }
@@ -250,13 +250,17 @@
             }
         }
 
-        async function sendOTP(email) {
+        async function sendRegistrationOTP(userEmail) {
+            return await postRequest({ action: 'sendOTP', email: userEmail });
+        }
+
+        async function postRequest(payload) {
             var response;
             try {
                 response = await fetch(APPS_SCRIPT_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify({ action: 'sendOTP', email: email })
+                    body: JSON.stringify(payload)
                 });
             } catch (error) {
                 throw new Error('Could not reach the verification service. Please try again later.');

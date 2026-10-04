@@ -5,8 +5,6 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Yitbarek Zewde</title>
-    <!-- Include EmailJS SDK -->
-    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
     <!-- Include Font Awesome for Footer Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
     <img src="YitbarekZewde.jpg" alt="Yitbarek Zewde" style="display:none;" onerror="this.style.display='none';" />
@@ -319,13 +317,7 @@
     </div>
 
     <script>
-        // ----- EmailJS Configuration -----
-        const SERVICE_ID = "service_2kca2tm";
-        const TEMPLATE_ID = "template_bk6mitp";
-        const PUBLIC_KEY = "4SOcrHZJ1yHxQiXjQ";
-
-        // Initialize EmailJS
-        emailjs.init(PUBLIC_KEY);
+        const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby7MqUF9hjiaADgKaxGVolG1wFwLQ8EgGKJgFqcV7IV0Nl83HQwowf0sHy4-rYzNqpcQw/exec';
 
         // --- Profile Image Fallback Logic ---
         const img = document.querySelector('.profile-image img');
@@ -349,7 +341,7 @@
             }
         });
 
-        sendEmailBtn.addEventListener('click', () => {
+        sendEmailBtn.addEventListener('click', async () => {
             const fromEmail = senderEmail.value.trim();
             const messageText = emailMessage.value.trim();
 
@@ -357,31 +349,35 @@
                 alert('Please fill out both your email address and message.');
                 return;
             }
+            if (!senderEmail.checkValidity()) {
+                senderEmail.reportValidity();
+                return;
+            }
 
             sendEmailBtn.innerText = 'Sending...';
             sendEmailBtn.disabled = true;
 
-            const templateParams = {
-                from_email: fromEmail,
-                message: messageText,
-                to_email: 'yitbarek.etc@gmail.com'
-            };
-
-            emailjs.send(SERVICE_ID, TEMPLATE_ID, templateParams)
-                .then(() => {
-                    alert('Email sent successfully!');
-                    senderEmail.value = '';
-                    emailMessage.value = '';
-                    emailPanel.style.display = 'none';
-                })
-                .catch((error) => {
-                    alert('Failed to send email. Please try again.');
-                    console.error('EmailJS Error:', error);
-                })
-                .finally(() => {
-                    sendEmailBtn.innerText = 'Send Message';
-                    sendEmailBtn.disabled = false;
+            try {
+                const response = await fetch(APPS_SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify({ from_email: fromEmail, message: messageText })
                 });
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                    throw new Error(result.message || 'Failed to send email. Please try again.');
+                }
+                alert('Email sent successfully!');
+                senderEmail.value = '';
+                emailMessage.value = '';
+                emailPanel.style.display = 'none';
+            } catch (error) {
+                alert(error.message || 'Failed to send email. Please try again.');
+                console.error('Contact form send failed:', error);
+            } finally {
+                sendEmailBtn.innerText = 'Send Message';
+                sendEmailBtn.disabled = false;
+            }
         });
 
         // --- Phone Modal Controller Logic ---

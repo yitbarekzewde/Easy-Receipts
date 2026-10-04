@@ -190,8 +190,7 @@
         async function signIn(email, password) {
             try {
                 var credential = await signInWithEmailAndPassword(auth, email, password);
-                var verifiedEmail = localStorage.getItem('verifiedEmail');
-                if (verifiedEmail !== credential.user.email) {
+                if (!credential.user.emailVerified) {
                     await signOut(auth);
                     localStorage.setItem('pendingVerificationEmail', credential.user.email);
                     alert('Please verify your email before logging in.');

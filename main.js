@@ -1,3 +1,7 @@
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzzEI6x6vehKW1CijCcGw-7zmLt0SRqLBVBlWqxehwfJP5X56I7T2vTBb45JEXzb4-hlA/exec';
+const CUSTOMER_RECEIPT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxnzc70hmMw9G8fIPRX1eiypQfglG5Yw9in3XLVPGDx02GOzk6ibMnR2y7M7WfeaDdpUA/exec';
+const SUPPORT_ATTACHMENTS_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwojlEIYRaWg59eAwlR_3czYVDN1lrJCw8kcj13sJC4z1etfE3qj4mm-yXEMapOGWmorw/exec';
+
 function msg(message, type = 'info') {
     const existing = document.getElementById('app-message');
     if (existing) existing.remove();
@@ -667,6 +671,7 @@ class StockManager {
         this.auditMode = false;
         this.sortKey = 'name';
         this.sortDirection = 1;
+        this.stockBatchScans = [];
     }
 
     getStoredStock() {
@@ -743,6 +748,9 @@ class StockManager {
     openStockItemForm(item = null) {
         const form = document.getElementById('stockFormCard');
         if (!form) return;
+        this.stockBatchScans = [];
+        const scanLog = document.getElementById('stockScannedBarcodes');
+        if (scanLog) scanLog.value = '';
         const formTitle = document.getElementById('stockFormTitle');
         const fields = {
             barcode: document.getElementById('stockBarcodeInput'),
@@ -787,10 +795,42 @@ class StockManager {
     closeStockItemForm() {
         const form = document.getElementById('stockFormCard');
         if (form) form.classList.add('hidden');
-        ['stockBarcodeInput','stockCaseBarcodeInput','stockUnitsPerBoxInput','stockNameInput','stockCategoryInput','stockSupplierInput','stockCostPriceInput','stockSellPriceInput','stockQtyInput','stockThresholdInput'].forEach(id => {
+        this.stockBatchScans = [];
+        ['stockBarcodeInput','stockCaseBarcodeInput','stockUnitsPerBoxInput','stockScannedBarcodes','stockNameInput','stockCategoryInput','stockSupplierInput','stockCostPriceInput','stockSellPriceInput','stockQtyInput','stockThresholdInput'].forEach(id => {
             const field = document.getElementById(id);
             if (field) field.value = '';
         });
+    }
+
+    addStockItemBarcode(barcode) {
+        const value = String(barcode || '').trim();
+        const input = document.getElementById('stockBarcodeInput');
+        const quantityInput = document.getElementById('stockQtyInput');
+        const scanLog = document.getElementById('stockScannedBarcodes');
+        const status = document.getElementById('stockScannerStatus');
+        if (!value || !input || !quantityInput) return;
+
+        const currentBarcode = input.value.trim();
+        if (currentBarcode && currentBarcode.toLowerCase() !== value.toLowerCase()) {
+            if (status) status.innerHTML = '<span class="status-error">This form is already counting a different item barcode. Start a separate stock item for another product.</span>';
+            return;
+        }
+
+        if (!currentBarcode) input.value = value;
+        this.stockBatchScans.push(value);
+        quantityInput.value = Math.max(0, Math.floor(Number(quantityInput.value) || 0)) + 1;
+        if (scanLog) scanLog.value = this.stockBatchScans.join('\n');
+        if (status) status.innerHTML = `<span class="status-success">Counted ${this.stockBatchScans.length} unit${this.stockBatchScans.length === 1 ? '' : 's'} for ${this.escapeHtml(value)}.</span>`;
+    }
+
+    clearStockBatchScans() {
+        const quantityInput = document.getElementById('stockQtyInput');
+        const scanLog = document.getElementById('stockScannedBarcodes');
+        const status = document.getElementById('stockScannerStatus');
+        if (quantityInput) quantityInput.value = Math.max(0, (Number(quantityInput.value) || 0) - this.stockBatchScans.length);
+        this.stockBatchScans = [];
+        if (scanLog) scanLog.value = '';
+        if (status) status.textContent = 'Scanned units cleared.';
     }
 
     saveStockItem() {
@@ -1118,10 +1158,14 @@ class StockManager {
         }
 
         if (mode === 'stock' || mode === 'stockCase') {
+            if (mode === 'stock') {
+                this.addStockItemBarcode(value);
+                return;
+            }
             const barcodeInput = document.getElementById(mode === 'stockCase' ? 'stockCaseBarcodeInput' : 'stockBarcodeInput');
             if (barcodeInput) barcodeInput.value = value;
             const scannerStatus = document.getElementById('stockScannerStatus');
-            if (scannerStatus) scannerStatus.innerHTML = `<span class="status-success">${mode === 'stockCase' ? 'Box barcode' : 'Item barcode'} captured. Complete and save the item.</span>`;
+            if (scannerStatus) scannerStatus.innerHTML = '<span class="status-success">Pack barcode captured. Complete and save the item.</span>';
             this.closeScannerModal();
             return;
         }
@@ -1170,14 +1214,29 @@ class StockManager {
         navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(stream => {
             video.srcObject = stream;
             const barcodeDetector = new BarcodeDetector({ formats: ['code_128', 'ean_13', 'qr_code', 'upc_a', 'code_39'] });
+            let lastDetectedCode = '';
+            let absentSince = 0;
             const scanLoop = async () => {
                 try {
                     const barcodes = await barcodeDetector.detect(video);
                     if (barcodes && barcodes.length) {
                         const code = barcodes[0].rawValue;
-                        this.processBarcode(code, mode);
-                        this.closeScannerModal();
-                        return;
+                        const normalizedCode = String(code || '').trim().toLowerCase();
+                        if (normalizedCode !== lastDetectedCode) {
+                            this.processBarcode(code, mode);
+                        }
+                        if (mode !== 'stock') {
+                            this.closeScannerModal();
+                            return;
+                        }
+                        lastDetectedCode = normalizedCode;
+                        absentSince = 0;
+                    } else if (mode === 'stock' && lastDetectedCode) {
+                        if (!absentSince) absentSince = Date.now();
+                        else if (Date.now() - absentSince >= 700) {
+                            lastDetectedCode = '';
+                            absentSince = 0;
+                        }
                     }
                 } catch (error) {
                     console.warn('Barcode scan failed:', error);
@@ -1521,7 +1580,7 @@ class SupportManager {
         e.preventDefault();
         const btn = document.getElementById('sendButton');
         const status = document.getElementById('statusArea');
-        const fileInput = document.getElementById('fileInput');
+        const fileInput = document.getElementById('support-screenshot');
         const file = fileInput ? fileInput.files[0] : null;
 
         if (status) status.innerHTML = "";
@@ -1529,9 +1588,11 @@ class SupportManager {
         btn.disabled = true;
 
         const payloadBase = {
+            action: 'sendSupportEmail',
             subject: document.getElementById('subject').value,
             message: document.getElementById('message').value,
             toEmail: document.getElementById('toEmail').value,
+            email: document.getElementById('toEmail').value.trim(),
             storeName: document.getElementById('storeSelect')?.value || 'My Store'
         };
 
@@ -1544,12 +1605,13 @@ class SupportManager {
 
         const sendPayload = async (base64 = "", name = "", type = "") => {
             const payload = { ...payloadBase, fileData: base64, fileName: name, fileType: type };
-            await fetch('https://script.google.com/macros/s/AKfycbxJSub81_2nkKO4Svcmn5rrlQ-xuUi8rMjwit7M2PAsVGVCWAFMDTJBKn0nTb1HsDCDuA/exec', {
+            const response = await fetch(SUPPORT_ATTACHMENTS_APPS_SCRIPT_URL, {
                 method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                 body: JSON.stringify(payload)
             });
+            const result = await response.json();
+            if (!response.ok || !result.success) throw new Error(result.message || 'Support request could not be sent.');
 
             if (status) {
                 status.innerHTML = "<span class='status-success'>✅ Request sent to server!</span>";
@@ -2180,6 +2242,31 @@ window.printReceiptOnly = function() {
 /**
  * Triggers WhatsApp share with formatted receipt text
  */
+window.saveReceiptCustomerContact = function(field, value) {
+    if (!['email', 'phone'].includes(field) || !window.customerManager) return false;
+    const select = document.getElementById('customerSelect');
+    const customerName = document.getElementById('client')?.value.trim() || '';
+    const customers = customerManager.getSavedCustomers();
+    let customer = customers.find(item => String(item.id) === String(select?.value))
+        || customers.find(item => item.name.toLowerCase() === customerName.toLowerCase());
+    if (!customer && customerName) {
+        customer = { id: Date.now(), name: customerName, email: '', phone: '', due: 0, deposit: 0, history: [] };
+        customers.push(customer);
+    }
+    if (!customer) return false;
+    customer[field] = value;
+    customerManager.setSavedCustomers(customers);
+    document.getElementById('customerEmail').value = customer.email || '';
+    document.getElementById('customerPhone').value = customer.phone || '';
+    if (select) {
+        customerManager.renderCustomerSuggestions();
+        select.value = String(customer.id);
+    }
+    customerManager.renderSelectedCustomerBalance(customer);
+    customerManager.renderCustomersList();
+    return true;
+};
+
 window.shareReceiptAction = function() {
     if (!window.cartManager || window.cartManager.cart.length === 0) {
         return alert("Cart is empty! Add items before sharing.");
@@ -2208,7 +2295,23 @@ window.shareReceiptAction = function() {
         text += `*AMOUNT DUE:* R ${Math.abs(totals.change).toFixed(2)}\n`;
     }
 
-    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
+    const customerName = document.getElementById('client')?.value.trim() || '';
+    const selectedId = document.getElementById('customerSelect')?.value;
+    const savedCustomer = customerManager.getSavedCustomers().find(item => String(item.id) === String(selectedId))
+        || customerManager.getSavedCustomers().find(item => item.name.toLowerCase() === customerName.toLowerCase());
+    let rawPhone = document.getElementById('customerPhone')?.value.trim() || savedCustomer?.phone || '';
+    let phone = rawPhone.replace(/\D/g, '');
+    if (phone.length < 8 || phone.length > 15) {
+        rawPhone = prompt(`Enter ${client}'s phone number, including country code:`, rawPhone);
+        if (rawPhone === null) return;
+        rawPhone = rawPhone.trim();
+        phone = rawPhone.replace(/\D/g, '');
+        if (phone.length < 8 || phone.length > 15) {
+            return alert('Enter a valid phone number with the international country code.');
+        }
+    }
+    window.saveReceiptCustomerContact('phone', rawPhone);
+    window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(text)}`, '_blank');
 };
 
 window.getReceiptShareText = function() {
@@ -2261,6 +2364,42 @@ window.shareReceiptPng = async function() {
     }
 };
 
+window.shareReceiptPdf = async function() {
+    const receipt = document.getElementById('receipt-box');
+    if (!receipt) return alert('No receipt is available to share.');
+    if (!window.html2canvas || !window.jspdf?.jsPDF) {
+        return alert('PDF sharing is unavailable because the required services did not load.');
+    }
+    try {
+        const canvas = await html2canvas(receipt, { scale: 3, backgroundColor: '#ffffff' });
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF({
+            orientation: canvas.width > canvas.height ? 'landscape' : 'portrait',
+            unit: 'px',
+            format: [canvas.width, canvas.height]
+        });
+        pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, canvas.width, canvas.height);
+        const blob = pdf.output('blob');
+        const file = new File([blob], `receipt-${Date.now()}.pdf`, { type: 'application/pdf' });
+        if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
+            await navigator.share({ title: 'Receipt', files: [file] });
+            return;
+        }
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = file.name;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(link.href);
+    } catch (error) {
+        if (error.name !== 'AbortError') {
+            console.error('Receipt PDF sharing failed:', error);
+            alert('Could not share the PDF receipt. Please try again.');
+        }
+    }
+};
+
 window.shareReceiptTelegram = function() {
     window.open(`https://t.me/share/url?url=&text=${encodeURIComponent(getReceiptShareText())}`, '_blank');
 };
@@ -2304,6 +2443,7 @@ window.openShareOptions = function() {
             <button class="btn-primary" onclick="shareReceiptText(); document.getElementById('shareOptionsModal').remove()"><i class="fas fa-file-lines"></i> Share Text</button>
             <button class="btn-secondary" onclick="copyReceiptText(); document.getElementById('shareOptionsModal').remove()"><i class="fas fa-copy"></i> Copy Text</button>
             <button class="btn-primary" onclick="shareReceiptPng(); document.getElementById('shareOptionsModal').remove()"><i class="fas fa-image"></i> Share Original PNG</button>
+            <button class="btn-primary" onclick="shareReceiptPdf(); document.getElementById('shareOptionsModal').remove()"><i class="fas fa-file-pdf"></i> Share as PDF</button>
             <button class="btn-secondary" onclick="downloadReceiptText(); document.getElementById('shareOptionsModal').remove()"><i class="fas fa-file-lines"></i> Download TXT</button>
             <button class="btn-primary" onclick="window.downloadReceipt(); document.getElementById('shareOptionsModal').remove()"><i class="fas fa-download"></i> Download</button>
         </div>
@@ -2316,7 +2456,6 @@ window.openShareOptions = function() {
 window.openReceiptEmail = function() {
     const modal = document.getElementById('receiptEmailModal');
     const email = document.getElementById('customerEmail')?.value.trim() || '';
-    if (!email) return alert('Select or save a customer email before sending.');
     document.getElementById('receiptEmailTo').value = email;
     modal.classList.remove('hidden');
     modal.style.display = 'flex';
@@ -2333,13 +2472,16 @@ window.sendReceiptByEmail = async function() {
     const status = document.getElementById('receiptEmailStatus');
     if (!emailInput.checkValidity()) return emailInput.reportValidity();
     if (!window.cartManager || !window.cartManager.cart.length) return alert('Cart is empty! Add items before sending.');
+    window.saveReceiptCustomerContact('email', emailInput.value.trim());
     button.disabled = true;
     button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
     status.textContent = '';
     try {
         const canvas = await html2canvas(document.getElementById('receipt-box'), { scale: 2, backgroundColor: '#ffffff' });
         const payload = {
+            action: 'sendReceiptEmail',
             toEmail: emailInput.value.trim(),
+            email: emailInput.value.trim(),
             subject: document.getElementById('receiptEmailSubject').value.trim() || 'Your receipt from Easy Receipt',
             message: `Receipt from ${document.getElementById('storeSelect').value || 'Easy Receipt'}. Please see the attached receipt.`,
             storeName: document.getElementById('storeSelect').value || 'Easy Receipt',
@@ -2347,9 +2489,11 @@ window.sendReceiptByEmail = async function() {
             fileName: 'receipt.png',
             fileType: 'image/png'
         };
-        await fetch('https://script.google.com/macros/s/AKfycbxJSub81_2nkKO4Svcmn5rrlQ-xuUi8rMjwit7M2PAsVGVCWAFMDTJBKn0nTb1HsDCDuA/exec', {
-            method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        const response = await fetch(CUSTOMER_RECEIPT_APPS_SCRIPT_URL, {
+            method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload)
         });
+        const result = await response.json();
+        if (!response.ok || !result.success) throw new Error(result.message || 'Receipt could not be sent.');
         status.innerHTML = '<span class="status-success">Receipt sent successfully.</span>';
     } catch (error) {
         status.innerHTML = `<span class="status-error">Could not send receipt: ${error.message}</span>`;

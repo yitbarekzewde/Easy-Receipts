@@ -56,6 +56,7 @@
     </style>
     <script src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
     <script type="module" src="firebase-config.js"></script>
@@ -107,23 +108,23 @@
             <div id="importStatus" class="status-message" aria-live="polite"></div>
 
             <div class="stock-fast-scan mt-20">
-                <label class="section-label" for="boxBarcodeScanInput">Box Barcode Scan</label>
+                <label class="section-label" for="boxBarcodeScanInput">Pack Barcode Scan</label>
                 <div class="flex-gap-10">
-                    <input type="text" id="boxBarcodeScanInput" placeholder="Scan box barcode and press Enter" autocomplete="off" onkeydown="if(event.key === 'Enter'){event.preventDefault();cartManager.addScannedBox()}">
-                    <button type="button" class="btn-primary" onclick="cartManager.addScannedBox()">Add Box to Cart</button>
+                    <input type="text" id="boxBarcodeScanInput" placeholder="Scan pack barcode and press Enter" autocomplete="off" onkeydown="if(event.key === 'Enter'){event.preventDefault();cartManager.addScannedBox()}">
+                    <button type="button" class="btn-primary" onclick="cartManager.addScannedBox()">Add Pack to Cart</button>
                 </div>
                 <div id="boxBarcodeScanStatus" class="status-message" aria-live="polite"></div>
                 <div class="form-grid mt-10">
                     <div>
-                        <label class="small-label" for="boxBarcodeSetupInput">Box Barcode</label>
-                        <input type="text" id="boxBarcodeSetupInput" placeholder="Scan or type box barcode" autocomplete="off">
+                        <label class="small-label" for="boxBarcodeSetupInput">Pack Barcode</label>
+                        <input type="text" id="boxBarcodeSetupInput" placeholder="Scan or type pack barcode" autocomplete="off">
                     </div>
                     <div>
                         <label class="small-label" for="boxItemNameInput">Item Name</label>
                         <input type="text" id="boxItemNameInput" placeholder="Item name" autocomplete="off">
                     </div>
                     <div>
-                        <label class="small-label" for="boxUnitsPerInput">Units per Box</label>
+                        <label class="small-label" for="boxUnitsPerInput">Units per Pack</label>
                         <input type="number" id="boxUnitsPerInput" min="1" step="1" value="1" placeholder="12">
                     </div>
                     <button type="button" class="btn-secondary" onclick="cartManager.saveBoxBarcode()">Save Box Barcode</button>
@@ -231,8 +232,8 @@
                                 id="message" name="message" rows="3" placeholder="Describe your issue or question"
                                 title="Message body"></textarea></div>
                         <div class="form-group"><label class="small-label" for="support-screenshot">Screenshot
-                                (Optional)</label><input type="file" id="support-screenshot" name="support-screenshot"
-                                accept="image/*" title="Attach a screenshot (optional)"></div>
+                            or attachment (Optional)</label><input type="file" id="support-screenshot" name="support-screenshot"
+                            accept="image/*,.pdf,.doc,.docx,.txt,.csv,.xlsx" title="Attach an image or document (optional)"></div>
                         <button type="submit" id="sendButton" class="send-btn">🚀 Send Email</button>
                         <button type="button" class="btn-danger"
                             onclick="document.getElementById('contactUsEmail').classList.add('hidden');">Close</button>
@@ -424,7 +425,7 @@
             <div class="modal-content" onclick="event.stopPropagation()">
                 <span class="close-modal" onclick="closeReceiptEmail()">&times;</span>
                 <h3 class="modal-heading"><i class="fas fa-envelope"></i> Email Receipt</h3>
-                <p class="paragraph-small">The receipt will be sent to the selected customer.</p>
+                <p class="paragraph-small">Enter the customer's email address if it has not been saved yet.</p>
                 <label class="small-label" for="receiptEmailTo">Customer email</label>
                 <input type="email" id="receiptEmailTo" required placeholder="customer@example.com">
                 <label class="small-label" for="receiptEmailSubject">Subject</label>
@@ -498,6 +499,11 @@
                 <div id="storeItemCameraPanel" class="store-item-camera hidden">
                     <video id="storeItemCameraVideo" autoplay playsinline muted></video>
                     <button type="button" class="btn-secondary" onclick="stopStoreItemCamera()"><i class="fas fa-stop" aria-hidden="true"></i> Stop camera</button>
+                </div>
+                <div class="store-item-scan-log">
+                    <label class="small-label" for="storeItemScannedBarcodes">Camera scan log</label>
+                    <textarea id="storeItemScannedBarcodes" rows="3" readonly placeholder="Scanned barcodes will appear here, one per unit."></textarea>
+                    <button type="button" class="btn-secondary" onclick="clearStoreItemScans()">Clear scanned units</button>
                 </div>
                 <div>
                     <label class="small-label" for="storeItemName">Product Name</label>

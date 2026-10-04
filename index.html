@@ -56,6 +56,7 @@
     </style>
     <script src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
     <script type="module" src="firebase-config.js"></script>
@@ -220,8 +221,8 @@
                                 id="message" name="message" rows="3" placeholder="Describe your issue or question"
                                 title="Message body"></textarea></div>
                         <div class="form-group"><label class="small-label" for="support-screenshot">Screenshot
-                                (Optional)</label><input type="file" id="support-screenshot" name="support-screenshot"
-                                accept="image/*" title="Attach a screenshot (optional)"></div>
+                            or attachment (Optional)</label><input type="file" id="support-screenshot" name="support-screenshot"
+                            accept="image/*,.pdf,.doc,.docx,.txt,.csv,.xlsx" title="Attach an image or document (optional)"></div>
                         <button type="submit" id="sendButton" class="send-btn">🚀 Send Email</button>
                         <button type="button" class="btn-danger"
                             onclick="document.getElementById('contactUsEmail').classList.add('hidden');">Close</button>
@@ -397,15 +398,20 @@
                                 <button type="button" class="btn-secondary" onclick="stockManager.openScannerModal('stock')" title="Scan barcode with camera"><i class="fas fa-camera"></i></button>
                             </div>
                         </div>
+                        <div class="stock-batch-scan-log">
+                            <label class="small-label" for="stockScannedBarcodes">Camera scan log</label>
+                            <textarea id="stockScannedBarcodes" rows="3" readonly placeholder="Scanned barcodes will appear here, one per unit."></textarea>
+                            <button type="button" class="btn-secondary" onclick="stockManager.clearStockBatchScans()">Clear scanned units</button>
+                        </div>
                         <div>
-                            <label class="small-label" for="stockCaseBarcodeInput">Box Barcode</label>
+                            <label class="small-label" for="stockCaseBarcodeInput">Pack Barcode</label>
                             <div class="stock-barcode-input-row">
-                                <input type="text" id="stockCaseBarcodeInput" placeholder="Scan or type box barcode">
+                                <input type="text" id="stockCaseBarcodeInput" placeholder="Scan or type pack barcode">
                                 <button type="button" class="btn-secondary" onclick="stockManager.openScannerModal('stockCase')" title="Scan box barcode with camera"><i class="fas fa-camera"></i></button>
                             </div>
                         </div>
                         <div>
-                            <label class="small-label" for="stockUnitsPerBoxInput">Units per Box</label>
+                            <label class="small-label" for="stockUnitsPerBoxInput">Units per Pack</label>
                             <input type="number" id="stockUnitsPerBoxInput" min="1" step="1" value="1" placeholder="12">
                         </div>
                         <div>
@@ -521,7 +527,7 @@
             <div class="modal-content" onclick="event.stopPropagation()">
                 <span class="close-modal" onclick="closeReceiptEmail()">&times;</span>
                 <h3 class="modal-heading"><i class="fas fa-envelope"></i> Email Receipt</h3>
-                <p class="paragraph-small">The receipt will be sent to the selected customer.</p>
+                <p class="paragraph-small">Enter the customer's email address if it has not been saved yet.</p>
                 <label class="small-label" for="receiptEmailTo">Customer email</label>
                 <input type="email" id="receiptEmailTo" required placeholder="customer@example.com">
                 <label class="small-label" for="receiptEmailSubject">Subject</label>
@@ -659,6 +665,7 @@
             <button class="btn-share" onclick="shareReceiptAction(); closeShareOptions()"><i class="fab fa-whatsapp"></i> Share to WhatsApp</button>
             <button class="btn-primary" onclick="openReceiptEmail(); closeShareOptions()"><i class="fas fa-envelope"></i> Send via Email</button>
             <button class="btn-primary" onclick="shareReceiptPng(); closeShareOptions()"><i class="fas fa-image"></i> Share Original PNG</button>
+            <button class="btn-primary" onclick="shareReceiptPdf(); closeShareOptions()"><i class="fas fa-file-pdf"></i> Share as PDF</button>
             <button class="btn-secondary" onclick="downloadReceiptText(); closeShareOptions()"><i class="fas fa-file-lines"></i> Download TXT</button>
             <button class="btn-primary" onclick="window.downloadReceipt(); closeShareOptions()"><i class="fas fa-download"></i> Download</button>
             <button class="btn-danger" onclick="closeShareOptions()">Cancel</button>

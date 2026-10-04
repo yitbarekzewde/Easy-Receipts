@@ -161,6 +161,18 @@ button { padding: 14px; border-radius: 10px; border: none; font-weight: bold; cu
 .receipt-item-name { text-align: left; padding: 5px 0; white-space: pre-wrap; font-size: 11px; }
 .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); justify-content: center; align-items: center; z-index: 10001; -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); padding: 16px 16px 96px; }
 .modal-content { background: white; padding: 25px; border-radius: 15px; max-width: 700px; width: 90%; max-height: 85vh; overflow-y: auto; position: relative; box-shadow: 0 20px 40px rgba(0,0,0,0.2); }
+#shareOptionsModal .modal-content { width: min(560px, 100%); max-height: min(88vh, 720px); overflow-x: hidden; overscroll-behavior: contain; }
+#shareOptionsModal .flex-gap-10 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+#shareOptionsModal .flex-gap-10 > button { display: flex; align-items: center; justify-content: flex-start; gap: 10px; min-width: 0; min-height: 58px; margin: 0; padding: 12px 14px; text-align: left; line-height: 1.3; white-space: normal; transition: transform 0.15s ease, box-shadow 0.15s ease; }
+#shareOptionsModal .flex-gap-10 > button:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(15, 23, 42, 0.16); }
+#shareOptionsModal .flex-gap-10 > button:focus-visible { outline: 3px solid #0f766e; outline-offset: 2px; }
+#shareOptionsModal .flex-gap-10 > button i { flex: 0 0 18px; text-align: center; }
+#shareOptionsModal .flex-gap-10 > button.btn-danger { grid-column: 1 / -1; }
+@media (max-width: 520px) {
+    #shareOptionsModal .modal-content { width: 100%; padding: 20px 16px; max-height: calc(100vh - 36px); max-height: calc(100dvh - 36px); }
+    #shareOptionsModal .flex-gap-10 { grid-template-columns: minmax(0, 1fr); }
+    #shareOptionsModal .flex-gap-10 > button.btn-danger { grid-column: auto; }
+}
 .modal-small { max-width: 380px; }
 .modal-center { text-align: center; background: #f8fafc; max-width: 450px; }
 .modal-high { z-index: 10002; }
@@ -168,6 +180,8 @@ button { padding: 14px; border-radius: 10px; border: none; font-weight: bold; cu
 .modal-extra-high { z-index: 10004; }
 .close-modal { position: absolute; top: 10px; right: 15px; font-size: 24px; cursor: pointer; color: #64748b; }
 .close-modal:hover { color: #ef4444; }
+.stock-batch-scan-log { grid-column: 1 / -1; }
+.stock-batch-scan-log textarea { min-height: 82px; resize: vertical; font-family: monospace; }
 .profile-info-row { display: flex; align-items: center; gap: 16px; padding: 12px; background: #f8fafc; border-radius: 12px; margin-bottom: 15px; }
 .profile-info-text p { font-size: 13px; color: #475569; margin-bottom: 2px; }
 .profile-info-text strong { color: #0f172a; }
