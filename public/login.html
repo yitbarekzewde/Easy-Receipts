@@ -125,7 +125,7 @@
 <script src="notification.js"></script>
 </head>
 <body>
-    <i class="left-navigation-arrow" onclick="window.location.href='index.html'" title="Back to app">
+    <i class="left-navigation-arrow" onclick="window.location.href='../index.html'" title="Back to app">
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-left">
             <line x1="19" y1="12" x2="5" y2="12"></line>
@@ -171,7 +171,7 @@
 
         //check if the user is already logged in and redirect straight into the app if they are
         if (localStorage.getItem('isLoggedIn') === 'true') {
-            window.location.href = 'index.html';
+            window.location.href = '../index.html';
         }
 
         // Add JavaScript for form validation and credential checking
@@ -208,7 +208,7 @@
                 }));
                 logActivity(credential.user.email, 'Logged In', 'Signed in successfully');
                 await notifyAuthEvent('login-success', { idToken: await credential.user.getIdToken() });
-                window.location.href = 'index.html';
+                window.location.href = '../index.html';
             } catch (error) {
                 logActivity(email, 'Failed Login', 'Incorrect email or password');
                 void notifyAuthEvent('login-failed', { email: email });
