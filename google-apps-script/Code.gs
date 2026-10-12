@@ -1,5 +1,5 @@
-const CONFIG = Object.freeze({
-  FIREBASE_PROJECT_ID: 'receipts-eccf0',
+const EASY_RECEIPT_BACKEND_CONFIG = Object.freeze({
+  FIREBASE_PROJECT_ID: 'easy-receipts-2',
   SUPPORT_EMAIL: 'yitbarek537zewde@gmail.com',
   OTP_TTL_SECONDS: 10 * 60,
   OTP_RESEND_SECONDS: 60,
@@ -7,7 +7,7 @@ const CONFIG = Object.freeze({
   MAX_ATTACHMENT_BYTES: 10 * 1024 * 1024
 });
 
-const IDENTITY_TOOLKIT_BASE = 'https://identitytoolkit.googleapis.com/v1/projects/';
+const EASY_RECEIPT_IDENTITY_TOOLKIT_BASE_URL = 'https://identitytoolkit.googleapis.com/v1/projects/';
 
 function doGet() {
   return jsonOutput_({ success: true, service: 'Easy Receipt Apps Script', status: 'ready' });
@@ -41,6 +41,10 @@ function dispatch_(payload) {
       return sendOtp_(payload.email, 'registration');
     case 'verifyOTP':
       return verifyRegistrationOtp_(payload.email, payload.otp);
+    case 'sendCreditCustomerOTP':
+      return sendOtp_(payload.email, 'credit-customer');
+    case 'verifyCreditCustomerOTP':
+      return verifyCreditCustomerOtp_(payload.email, payload.otp);
     case 'sendResetOTP':
       return sendResetOtp_(payload.email);
     case 'resetPassword':
@@ -70,15 +74,20 @@ function sendOtp_(emailValue, purpose) {
   const secret = getOtpSecret_();
   const record = { digest: otpDigest_(purpose, email, otp, secret), attempts: 0 };
   const isReset = purpose === 'password-reset';
-  const subject = isReset ? 'Your Easy Receipt password reset code' : 'Verify your Easy Receipt email';
+  const isCreditCustomer = purpose === 'credit-customer';
+  const subject = isReset
+    ? 'Your Easy Receipt password reset code'
+    : isCreditCustomer ? 'Verify your email for a credit account' : 'Verify your Easy Receipt email';
   const body = isReset
     ? 'Your Easy Receipt password reset code is ' + otp + '. It expires in 10 minutes. If you did not request this, you can ignore this email.'
-    : 'Your Easy Receipt account has been created and is awaiting email verification. Your verification code is ' + otp + '. It expires in 10 minutes.';
+    : isCreditCustomer
+      ? 'Your email verification code for an Easy Receipt credit account is ' + otp + '. It expires in 10 minutes. If you did not request this, you can ignore this email.'
+      : 'Your Easy Receipt account has been created and is awaiting email verification. Your verification code is ' + otp + '. It expires in 10 minutes.';
 
   ensureMailQuota_();
   MailApp.sendEmail({ to: email, subject: subject, body: body, name: 'Easy Receipt' });
-  cache.put(key, JSON.stringify(record), CONFIG.OTP_TTL_SECONDS);
-  cache.put(cooldownKey, '1', CONFIG.OTP_RESEND_SECONDS);
+  cache.put(key, JSON.stringify(record), EASY_RECEIPT_BACKEND_CONFIG.OTP_TTL_SECONDS);
+  cache.put(cooldownKey, '1', EASY_RECEIPT_BACKEND_CONFIG.OTP_RESEND_SECONDS);
   return { success: true, message: isReset ? 'Reset code sent.' : 'Verification code sent.' };
 }
 
@@ -94,11 +103,22 @@ function sendAuthNotification_(payload) {
     const response = identityToolkitRequest_('accounts:lookup', { idToken: idToken });
     const users = response && response.users ? response.users : [];
     const user = users.length ? users[0] : null;
-    if (!user || !user.email || !user.emailVerified) throw publicError_('Verified sign-in required.');
+    if (!user || !user.localId || !user.email || !user.emailVerified) throw publicError_('Verified sign-in required.');
     email = normalizeEmail_(user.email);
     enforceRateLimit_('auth-login-success', email, 5, 3600);
-    subject = 'New sign-in to your Easy Receipt account';
-    message = 'A successful sign-in to your Easy Receipt account was just detected. If this was not you, reset your password and contact support.';
+    const device = getDeviceDetails_(payload.device);
+    const isNewDevice = registerSignInDevice_(user.localId, device);
+    subject = isNewDevice
+      ? 'New device sign-in to your Easy Receipt account'
+      : 'Sign-in to your Easy Receipt account';
+    message = (isNewDevice
+      ? 'A sign-in from a new device was detected.'
+      : 'A sign-in to your Easy Receipt account was detected.')
+      + '\n\nDevice: ' + device.model
+      + '\nPlatform: ' + device.platform
+      + '\nBrowser: ' + device.browser
+      + '\nTime: ' + new Date().toISOString()
+      + '\n\nIf this was not you, change your password, review your signed-in devices, and sign out of any device you do not recognize. Contact support if you need help.';
   } else if (event === 'login-failed') {
     email = normalizeEmail_(payload.email);
     const user = lookupFirebaseUser_(email);
@@ -113,6 +133,54 @@ function sendAuthNotification_(payload) {
   ensureMailQuota_();
   MailApp.sendEmail({ to: email, subject: subject, body: message, name: 'Easy Receipt' });
   return { success: true, message: 'Security notification sent.' };
+}
+
+function getDeviceDetails_(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw publicError_('Device details are required for a sign-in notification.');
+  }
+  const deviceId = String(value.id || '');
+  if (!/^[a-f0-9-]{32,64}$/i.test(deviceId)) {
+    throw publicError_('Invalid device identifier.');
+  }
+  return {
+    id: deviceId,
+    model: cleanDeviceField_(value.model, 'Unknown device'),
+    platform: cleanDeviceField_(value.platform, 'Unknown platform'),
+    browser: cleanDeviceField_(value.browser, 'Unknown browser')
+  };
+}
+
+function cleanDeviceField_(value, fallback) {
+  const field = String(value || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 100);
+  return field || fallback;
+}
+
+function registerSignInDevice_(userId, device) {
+  const properties = PropertiesService.getScriptProperties();
+  const key = 'auth-devices-' + userId;
+  const devices = JSON.parse(properties.getProperty(key) || '[]');
+  if (!Array.isArray(devices)) throw new Error('Stored sign-in device list is invalid.');
+
+  const now = new Date().toISOString();
+  const knownDevice = devices.find(item => item && item.id === device.id);
+  if (knownDevice) {
+    knownDevice.model = device.model;
+    knownDevice.platform = device.platform;
+    knownDevice.browser = device.browser;
+    knownDevice.lastSeen = now;
+  } else {
+    devices.push({
+      id: device.id,
+      model: device.model,
+      platform: device.platform,
+      browser: device.browser,
+      firstSeen: now,
+      lastSeen: now
+    });
+  }
+  properties.setProperty(key, JSON.stringify(devices.slice(-25)));
+  return !knownDevice;
 }
 
 function sendResetOtp_(emailValue) {
@@ -134,6 +202,12 @@ function verifyRegistrationOtp_(emailValue, otpValue) {
     updateFirebaseUser_(user.localId, { emailVerified: true });
   });
   return { success: true, message: 'Email verified.' };
+}
+
+function verifyCreditCustomerOtp_(emailValue, otpValue) {
+  const email = normalizeEmail_(emailValue);
+  withValidOtp_('credit-customer', email, otpValue, function () {});
+  return { success: true, message: 'Customer email verified.' };
 }
 
 function resetPassword_(emailValue, otpValue, newPasswordValue) {
@@ -167,11 +241,11 @@ function withValidOtp_(purpose, email, otpValue, callback) {
     const expected = otpDigest_(purpose, email, otp, getOtpSecret_());
     if (!constantTimeEquals_(record.digest, expected)) {
       record.attempts = Number(record.attempts || 0) + 1;
-      if (record.attempts >= CONFIG.OTP_MAX_ATTEMPTS) {
+      if (record.attempts >= EASY_RECEIPT_BACKEND_CONFIG.OTP_MAX_ATTEMPTS) {
         cache.remove(key);
         throw publicError_('Too many incorrect attempts. Request a new code.');
       }
-      cache.put(key, JSON.stringify(record), CONFIG.OTP_TTL_SECONDS);
+      cache.put(key, JSON.stringify(record), EASY_RECEIPT_BACKEND_CONFIG.OTP_TTL_SECONDS);
       throw publicError_('The code is incorrect. Please try again.');
     }
 
@@ -190,11 +264,11 @@ function sendSupportEmail_(payload) {
   const storeName = cleanText_(payload.storeName, 160) || 'Easy Receipt';
   const attachments = getAttachments_(payload, false);
   enforceRateLimit_('support-sender', senderEmail, 5, 3600);
-  enforceRateLimit_('support-inbox', CONFIG.SUPPORT_EMAIL, 50, 21600);
+  enforceRateLimit_('support-inbox', EASY_RECEIPT_BACKEND_CONFIG.SUPPORT_EMAIL, 50, 21600);
   ensureMailQuota_();
 
   MailApp.sendEmail({
-    to: CONFIG.SUPPORT_EMAIL,
+    to: EASY_RECEIPT_BACKEND_CONFIG.SUPPORT_EMAIL,
     replyTo: senderEmail,
     subject: '[Easy Receipt Support] ' + subject,
     body: 'Store: ' + storeName + '\nFrom: ' + senderEmail + '\n\n' + (message || '(No message provided.)'),
@@ -211,7 +285,7 @@ function sendReceiptEmail_(payload) {
   const storeName = cleanText_(payload.storeName, 160) || 'Easy Receipt';
   const attachments = getAttachments_(payload, true);
   enforceRateLimit_('receipt-recipient', recipient, 8, 21600);
-  enforceRateLimit_('receipt-global', CONFIG.SUPPORT_EMAIL, 80, 21600);
+  enforceRateLimit_('receipt-global', EASY_RECEIPT_BACKEND_CONFIG.SUPPORT_EMAIL, 80, 21600);
   ensureMailQuota_();
 
   MailApp.sendEmail({
@@ -230,7 +304,7 @@ function getAttachments_(payload, required) {
     if (required) throw publicError_('The receipt attachment is missing.');
     return [];
   }
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(fileData) || fileData.length > Math.ceil(CONFIG.MAX_ATTACHMENT_BYTES * 4 / 3) + 8) {
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(fileData) || fileData.length > Math.ceil(EASY_RECEIPT_BACKEND_CONFIG.MAX_ATTACHMENT_BYTES * 4 / 3) + 8) {
     throw publicError_('The attachment is invalid or too large. Maximum size is 10 MB.');
   }
 
@@ -251,7 +325,7 @@ function getAttachments_(payload, required) {
   } catch (error) {
     throw publicError_('The attachment could not be decoded.');
   }
-  if (bytes.length > CONFIG.MAX_ATTACHMENT_BYTES) throw publicError_('Attachments must be 10 MB or smaller.');
+  if (bytes.length > EASY_RECEIPT_BACKEND_CONFIG.MAX_ATTACHMENT_BYTES) throw publicError_('Attachments must be 10 MB or smaller.');
 
   const filename = cleanFilename_(payload.fileName) || 'attachment';
   return [Utilities.newBlob(bytes, mimeType, filename)];
@@ -269,8 +343,8 @@ function updateFirebaseUser_(localId, changes) {
 }
 
 function identityToolkitRequest_(method, payload) {
-  const projectId = encodeURIComponent(CONFIG.FIREBASE_PROJECT_ID);
-  const url = IDENTITY_TOOLKIT_BASE + projectId + '/' + method;
+  const projectId = encodeURIComponent(EASY_RECEIPT_BACKEND_CONFIG.FIREBASE_PROJECT_ID);
+  const url = EASY_RECEIPT_IDENTITY_TOOLKIT_BASE_URL + projectId + '/' + method;
   const response = UrlFetchApp.fetch(url, {
     method: 'post',
     contentType: 'application/json',

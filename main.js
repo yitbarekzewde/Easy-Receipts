@@ -1,4 +1,4 @@
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz-UEZIY0HMOKArHj_t921hP3oXU2icU9rll0-Id5k35oAxVQBRjDZQdpdMZ6C1ZS5dag/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx2vAFTPPvCwnK7rI0OQuvuesMCvqQ9NSHX2tx94z-axY7eEvF7T4cU3WRwpgj021Ct/exec';
 const CUSTOMER_RECEIPT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxnzc70hmMw9G8fIPRX1eiypQfglG5Yw9in3XLVPGDx02GOzk6ibMnR2y7M7WfeaDdpUA/exec';
 const SUPPORT_ATTACHMENTS_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwojlEIYRaWg59eAwlR_3czYVDN1lrJCw8kcj13sJC4z1etfE3qj4mm-yXEMapOGWmorw/exec';
 let allowDeviceBackExit = false;
@@ -22,8 +22,157 @@ class AuthManager {
     constructor() {
         this.currentUser = null;
         this.pendingSetupPic = null;
+        this.settings = this.getDefaultSettings();
     }
     getStoredProfile() { return JSON.parse(localStorage.getItem('p3_user_profile') || 'null'); }
+    getDefaultSettings() { return { theme: 'system', accent: 'orange', density: 'comfortable', defaultTax: '0.00' }; }
+    getStoredSettings() {
+        const defaults = this.getDefaultSettings();
+        try {
+            const saved = JSON.parse(localStorage.getItem('p3_app_settings') || 'null');
+            if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return defaults;
+            const themes = ['system', 'light', 'dark'];
+            const accents = ['orange', 'blue', 'green', 'violet'];
+            const densities = ['comfortable', 'compact'];
+            const tax = Number(saved.defaultTax);
+            return {
+                theme: themes.includes(saved.theme) ? saved.theme : defaults.theme,
+                accent: accents.includes(saved.accent) ? saved.accent : defaults.accent,
+                density: densities.includes(saved.density) ? saved.density : defaults.density,
+                defaultTax: Number.isFinite(tax) && tax >= 0 && tax <= 100 ? tax.toFixed(2) : defaults.defaultTax
+            };
+        } catch (error) {
+            console.error('Could not read saved workspace preferences.', error);
+            return defaults;
+        }
+    }
+    loadSettings() {
+        this.settings = this.getStoredSettings();
+        this.applySettings(true);
+        this.renderSettings();
+    }
+    applySettings(setDefaultTax) {
+        const colors = { orange: '#f97316', blue: '#2563eb', green: '#059669', violet: '#7c3aed' };
+        const wantsDark = this.settings.theme === 'dark'
+            || (this.settings.theme === 'system' && window.matchMedia?.('(prefers-color-scheme: dark)').matches);
+        document.body.dataset.theme = wantsDark ? 'dark' : 'light';
+        document.documentElement.style.setProperty('--primary', colors[this.settings.accent] || colors.orange);
+        document.body.classList.toggle('compact-mode', this.settings.density === 'compact');
+        const taxInput = document.getElementById('tax');
+        if (setDefaultTax && taxInput && (taxInput.value === '0.00' || taxInput.value === '')) {
+            taxInput.value = this.settings.defaultTax;
+        }
+    }
+    renderSettings() {
+        const theme = document.getElementById('settingTheme');
+        const accent = document.getElementById('settingAccent');
+        const density = document.getElementById('settingDensity');
+        const tax = document.getElementById('settingDefaultTax');
+        if (theme) theme.value = this.settings.theme;
+        if (accent) accent.value = this.settings.accent;
+        if (density) density.value = this.settings.density;
+        if (tax) tax.value = this.settings.defaultTax;
+    }
+    saveSettings() {
+        const status = document.getElementById('settingsSaveStatus');
+        const tax = Number(document.getElementById('settingDefaultTax')?.value);
+        if (!Number.isFinite(tax) || tax < 0 || tax > 100) {
+            if (status) {
+                status.textContent = 'Enter a default tax between 0 and 100%.';
+                status.classList.add('account-status-error');
+            }
+            return;
+        }
+        const nextSettings = {
+            theme: ['system', 'light', 'dark'].includes(document.getElementById('settingTheme')?.value) ? document.getElementById('settingTheme').value : 'system',
+            accent: ['orange', 'blue', 'green', 'violet'].includes(document.getElementById('settingAccent')?.value) ? document.getElementById('settingAccent').value : 'orange',
+            density: ['comfortable', 'compact'].includes(document.getElementById('settingDensity')?.value) ? document.getElementById('settingDensity').value : 'comfortable',
+            defaultTax: tax.toFixed(2)
+        };
+        try {
+            localStorage.setItem('p3_app_settings', JSON.stringify(nextSettings));
+        } catch (error) {
+            console.error('Could not save workspace preferences.', error);
+            if (status) {
+                status.textContent = 'Preferences could not be saved on this device.';
+                status.classList.add('account-status-error');
+            }
+            return;
+        }
+        this.settings = nextSettings;
+        this.applySettings(false);
+        if (status) {
+            status.textContent = 'Preferences saved on this device.';
+            status.classList.remove('account-status-error');
+        }
+    }
+    resetSettings() {
+        const defaults = this.getDefaultSettings();
+        try {
+            localStorage.setItem('p3_app_settings', JSON.stringify(defaults));
+        } catch (error) {
+            console.error('Could not restore workspace preferences.', error);
+            const status = document.getElementById('settingsSaveStatus');
+            if (status) {
+                status.textContent = 'Default preferences could not be saved on this device.';
+                status.classList.add('account-status-error');
+            }
+            return;
+        }
+        this.settings = defaults;
+        this.applySettings(false);
+        this.renderSettings();
+        const status = document.getElementById('settingsSaveStatus');
+        if (status) {
+            status.textContent = 'Default preferences restored.';
+            status.classList.remove('account-status-error');
+        }
+    }
+    showAccountTab(tab) {
+        const settingsSelected = tab === 'settings';
+        document.getElementById('account-profile-panel')?.classList.toggle('hidden', settingsSelected);
+        document.getElementById('account-settings-panel')?.classList.toggle('hidden', !settingsSelected);
+        const profileTab = document.getElementById('account-tab-profile');
+        const settingsTab = document.getElementById('account-tab-settings');
+        profileTab?.classList.toggle('active', !settingsSelected);
+        settingsTab?.classList.toggle('active', settingsSelected);
+        profileTab?.setAttribute('aria-selected', String(!settingsSelected));
+        settingsTab?.setAttribute('aria-selected', String(settingsSelected));
+        if (settingsSelected) this.renderSettings();
+    }
+    saveProfileDetails(event) {
+        event.preventDefault();
+        if (!this.currentUser) return alert('Sign in or create a profile before saving account details.');
+        const name = document.getElementById('accountDisplayName').value.trim();
+        if (!name) return alert('Display name is required.');
+        const updates = {
+            ...this.currentUser,
+            name,
+            businessName: document.getElementById('accountBusinessName').value.trim(),
+            phone: document.getElementById('accountPhone').value.trim(),
+            role: document.getElementById('accountRole').value
+        };
+        if (this.currentUser.provider === 'manual') {
+            updates.email = document.getElementById('accountEmail').value.trim();
+        }
+        this.saveProfile({
+            ...updates
+        });
+        const status = document.getElementById('profileSaveStatus');
+        if (status) status.textContent = 'Profile saved on this device.';
+    }
+    downloadProfile() {
+        if (!this.currentUser) return alert('There is no profile to export.');
+        const profile = { ...this.currentUser };
+        delete profile.picture;
+        const blob = new Blob([JSON.stringify(profile, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${(profile.name || 'easy-receipt-profile').replace(/[^a-z0-9_-]+/gi, '-').toLowerCase()}-profile.json`;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
 
     saveProfile(profileObj) {
         this.currentUser = profileObj;
@@ -35,10 +184,30 @@ class AuthManager {
         const profEmail = document.getElementById('prof-email');
         if (profName) profName.innerText = profileObj.name || '';
         if (profEmail) profEmail.innerText = profileObj.email || '';
+        const displayName = document.getElementById('accountDisplayName');
+        const email = document.getElementById('accountEmail');
+        const emailHint = document.getElementById('accountEmailHint');
+        const businessName = document.getElementById('accountBusinessName');
+        const phone = document.getElementById('accountPhone');
+        const role = document.getElementById('accountRole');
+        if (displayName) displayName.value = profileObj.name || '';
+        if (email) {
+            email.value = profileObj.email || '';
+            email.readOnly = profileObj.provider !== 'manual';
+        }
+        if (emailHint) {
+            emailHint.textContent = profileObj.provider === 'manual'
+                ? 'Profile contact email, stored on this device.'
+                : 'Sign-in email managed by your identity provider.';
+        }
+        if (businessName) businessName.value = profileObj.businessName || '';
+        if (phone) phone.value = profileObj.phone || '';
+        if (role) role.value = ['Owner', 'Manager', 'Cashier'].includes(profileObj.role) ? profileObj.role : 'Owner';
         
         this.applyAvatarEverywhere(profileObj.picture || null);
     }
     loadUserData() {
+        this.loadSettings();
         const saved = this.getStoredProfile();
         if (saved && saved.name && saved.email) {
             this.saveProfile(saved);
@@ -116,8 +285,16 @@ class AuthManager {
             }
         }
     }
-    logoutUser() {
+    async logoutUser() {
         if (!confirm("Are you sure you want to sign out?")) return;
+        if (window.easyReceiptSignOut) {
+            try {
+                await window.easyReceiptSignOut();
+            } catch (error) {
+                console.error('Could not sign out of Firebase.', error);
+                return alert('Could not sign out. Please check your connection and try again.');
+            }
+        }
         localStorage.removeItem('p3_user_profile');
         localStorage.removeItem('isLoggedIn');
         this.currentUser = null;
@@ -136,7 +313,7 @@ class AuthManager {
         if (!nameInput || !emailInput) return alert('Manual setup form is unavailable. Please reload the page.');
         const name = nameInput.value.trim(), email = emailInput.value.trim();
         if (!name || !email) return alert('Please fill in both name and email.');
-        this.saveProfile({ name, email, picture: this.pendingSetupPic || null, provider: 'manual' });
+        this.saveProfile({ name, email, picture: this.pendingSetupPic || null, provider: 'manual', role: 'Owner' });
         this.pendingSetupPic = null;
         document.getElementById('profileForm').reset();
         document.getElementById('profile-setup-view').style.display = 'none';
@@ -145,8 +322,16 @@ class AuthManager {
         cartManager.updateUI();
     }
     closeAuthModal() { document.getElementById('authModal').style.display = 'none'; }
-    openAuthModal() {
+    openAuthModal(section = 'profile') {
         document.getElementById('authModal').style.display = 'flex';
+        if (this.currentUser) {
+            document.getElementById('profile-setup-view').style.display = 'none';
+            document.getElementById('profile-active-view').classList.remove('hidden');
+            this.showAccountTab(section === 'settings' ? 'settings' : 'profile');
+        } else {
+            document.getElementById('profile-setup-view').style.display = 'block';
+            document.getElementById('profile-active-view').classList.add('hidden');
+        }
         customerManager.renderCustomersList();
     }
 }
@@ -1145,7 +1330,7 @@ class StockManager {
     lookupBarcodeFromInput() {
         const input = document.getElementById('stockScannerManualInput');
         const value = input?.value || '';
-        const mode = ['stock', 'stockCase'].includes(this.currentScanMode) ? this.currentScanMode : this.currentScanMode === 'sale' ? 'sale' : 'lookup';
+        const mode = ['stock', 'stockCase', 'cart', 'sale'].includes(this.currentScanMode) ? this.currentScanMode : 'lookup';
         this.processBarcode(value, mode);
     }
 
@@ -2118,9 +2303,24 @@ function openView(type) {
         const saved = authManager.getStoredProfile();
         const profileView = document.getElementById('profileView');
         if (profileView) {
-            profileView.innerHTML = saved && saved.name && saved.email
-                ? `<div class="profile-profile-line"><p><b>Name:</b> ${saved.name}</p><p><b>Email:</b> ${saved.email}</p><p><b>Provider:</b> ${saved.provider || 'manual'}</p></div>`
-                : '<p class="paragraph-small">No profile saved yet.</p>';
+            profileView.replaceChildren();
+            if (saved && saved.name && saved.email) {
+                const details = document.createElement('div');
+                details.className = 'profile-profile-line';
+                [['Name', saved.name], ['Email', saved.email], ['Provider', saved.provider || 'manual']].forEach(([label, value]) => {
+                    const row = document.createElement('p');
+                    const heading = document.createElement('b');
+                    heading.textContent = `${label}: `;
+                    row.append(heading, document.createTextNode(String(value)));
+                    details.appendChild(row);
+                });
+                profileView.appendChild(details);
+            } else {
+                const empty = document.createElement('p');
+                empty.className = 'paragraph-small';
+                empty.textContent = 'No profile saved yet.';
+                profileView.appendChild(empty);
+            }
         }
     }
     if (type === 'statements') buildStatementRows();
@@ -2176,6 +2376,23 @@ window.finishOrdering = function() {
 // ─── AUTO-RESUME DETECTOR FOR RETURNING CUSTOMERS ───────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
+    const routeParams = new URLSearchParams(window.location.search);
+    const requestedView = routeParams.get('mainView');
+    const supportedViews = new Set(['savedReceipts', 'ordering', 'downloads', 'statements', 'customers']);
+    let handledCreditRoute = false;
+    if (supportedViews.has(requestedView)) {
+        openView(requestedView);
+        handledCreditRoute = true;
+    } else if (routeParams.get('addStock') === '1') {
+        if (typeof window.openStoreItemModal === 'function') window.openStoreItemModal();
+        else if (typeof stockManager !== 'undefined') {
+            openView('stock');
+            stockManager.openStockItemForm();
+        }
+        handledCreditRoute = true;
+    }
+    if (handledCreditRoute) window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+
     const orderingSearchInput = document.getElementById('orderingSearchInput');
     if (orderingSearchInput) orderingSearchInput.addEventListener('input', () => renderOrderingItems());
     const clientInput = document.getElementById('client');

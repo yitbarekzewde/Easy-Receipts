@@ -55,6 +55,7 @@
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
     <script type="module" src="firebase-config.js"></script>
+    <script type="module" src="public/cloud-sync.js"></script>
 </head>
 
 <body>
@@ -68,6 +69,7 @@
                     <li onclick="handleMenuClick('drafts')"><i class="fas fa-save icon-primary"></i> Saved Drafts</li>
                     <li onclick="handleMenuClick('profile')"><i class="fas fa-user-circle icon-primary"></i> Manage
                         Profile</li>
+                    <li onclick="authManager.openAuthModal('settings')"><i class="fas fa-sliders-h icon-primary"></i> Settings</li>
                     <li onclick="window.location.href='public/sales.html'"><i class="fas fa-cash-register icon-primary"></i> Point of Sale</li>
                     <li onclick="handleMenuClick('stock')"><i class="fas fa-boxes icon-primary"></i> Items & Stock Control</li>
                     <li onclick="handleMenuClick('priceMgmt')"><i class="fas fa-tags icon-primary"></i> Price & Product
@@ -105,12 +107,9 @@
             <div id="importStatus" class="status-message" aria-live="polite"></div>
 
             <div class="stock-fast-scan">
-                <label class="section-label" for="stockScanBarcodeInput">Quick Item Scan</label>
-                <div class="flex-gap-10">
-                    <input type="text" id="stockScanBarcodeInput" placeholder="Scan barcode or type code and press Enter" autocomplete="off">
-                    <button type="button" class="btn-primary" onclick="stockManager.addBarcodeToCart()">Add by Barcode</button>
-                    <button type="button" class="btn-secondary" onclick="stockManager.openScannerModal('cart')">Camera Scan</button>
-                </div>
+                <button type="button" class="btn-secondary stock-quick-scan-btn" onclick="stockManager.openScannerModal('cart')" title="Scan a barcode with your camera">
+                    <i class="fas fa-camera"></i> Quick Scan
+                </button>
                 <div id="stockScanStatus" class="status-message" aria-live="polite"></div>
             </div>
 
@@ -242,10 +241,17 @@
             <span class="close-modal" onclick="authManager.closeAuthModal()">&times;</span>
 
             <div id="profile-active-view" class="hidden">
-                <h3 class="modal-heading"><i class="fas fa-id-card action-icon-primary"></i> Cashier Profile</h3>
+                <div class="account-modal-heading">
+                    <div>
+                        <p class="account-eyebrow">ACCOUNT CENTER</p>
+                        <h3 class="modal-heading"><i class="fas fa-id-card action-icon-primary"></i> Your profile</h3>
+                    </div>
+                    <span class="account-local-badge"><i class="fas fa-laptop"></i> Stored on this device</span>
+                </div>
                 <div class="profile-info-row">
                     <div class="profile-pic-circle" onclick="document.getElementById('pic-upload-input').click()"
-                        title="Click to change photo">
+                        title="Change profile photo" role="button" tabindex="0"
+                        onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('pic-upload-input').click();}">
                         <img id="modal-avatar-img" src="" alt="Profile Photo">
                         <i class="fas fa-user-circle" id="modal-avatar-icon"></i>
                         <div class="pic-overlay"><i class="fas fa-camera"></i></div>
@@ -254,26 +260,103 @@
                         onchange="authManager.handlePicUpload(event)" title="Upload profile photo"
                         placeholder="Upload photo" aria-label="Upload profile photo">
                     <div class="profile-info-text">
-                        <div class="profile-name-line">
-                            <p><strong id="prof-name"></strong></p>
-                            <div class="profile-name-menu">
-                                <button type="button" class="profile-menu-button" onclick="authManager.toggleNameMenu(event)" aria-label="Edit profile name" title="Edit profile name"><i class="fas fa-ellipsis-v"></i></button>
-                                <div id="profileNameMenuPanel" class="profile-name-menu-panel hidden">
-                                    <label class="small-label" for="edit-name-input">Display name</label>
-                                    <div class="profile-form-row">
-                                        <input type="text" id="edit-name-input" placeholder="Your name">
-                                        <button type="button" onclick="authManager.saveUpdatedName()" class="button-save-profile">Save</button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <p id="prof-email" class="text-muted"></p><span class="pic-hint">Click photo to change</span>
+                        <p class="account-display-name" id="prof-name"></p>
+                        <p id="prof-email" class="text-muted"></p>
+                        <span class="pic-hint">Click the photo to update it</span>
                     </div>
                 </div>
 
-                <hr class="section-divider">
-                <h4 class="section-subheading"><i class="fas fa-users action-icon-primary"></i> Registered Customers & Transaction History</h4>
-                <div id="profileCustomerHistory"></div>
+                <div class="account-tabs" role="tablist" aria-label="Account sections">
+                    <button type="button" class="account-tab active" id="account-tab-profile" role="tab"
+                        aria-selected="true" onclick="authManager.showAccountTab('profile')"><i class="fas fa-user"></i> Profile</button>
+                    <button type="button" class="account-tab" id="account-tab-settings" role="tab"
+                        aria-selected="false" onclick="authManager.showAccountTab('settings')"><i class="fas fa-sliders-h"></i> Preferences</button>
+                </div>
+
+                <section id="account-profile-panel" class="account-panel" role="tabpanel" aria-labelledby="account-tab-profile">
+                    <form id="accountProfileForm" onsubmit="authManager.saveProfileDetails(event)">
+                        <div class="account-form-grid">
+                            <div>
+                                <label class="small-label" for="accountDisplayName">Display name</label>
+                                <input type="text" id="accountDisplayName" maxlength="80" autocomplete="name" required>
+                            </div>
+                            <div>
+                                <label class="small-label" for="accountEmail">Profile email</label>
+                                <input type="email" id="accountEmail" autocomplete="email" required aria-describedby="accountEmailHint">
+                                <span id="accountEmailHint" class="account-field-hint">Profile contact email.</span>
+                            </div>
+                            <div>
+                                <label class="small-label" for="accountBusinessName">Business / store name</label>
+                                <input type="text" id="accountBusinessName" maxlength="100" autocomplete="organization" placeholder="Your business">
+                            </div>
+                            <div>
+                                <label class="small-label" for="accountPhone">Contact phone</label>
+                                <input type="tel" id="accountPhone" maxlength="32" autocomplete="tel" placeholder="+27 ...">
+                            </div>
+                            <div>
+                                <label class="small-label" for="accountRole">Role</label>
+                                <select id="accountRole">
+                                    <option value="Owner">Owner</option>
+                                    <option value="Manager">Manager</option>
+                                    <option value="Cashier">Cashier</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="account-actions">
+                            <button type="submit" class="btn-primary"><i class="fas fa-save"></i> Save profile</button>
+                            <button type="button" class="btn-secondary" onclick="authManager.downloadProfile()"><i class="fas fa-download"></i> Export profile</button>
+                        </div>
+                        <p id="profileSaveStatus" class="account-status" aria-live="polite"></p>
+                    </form>
+
+                    <hr class="section-divider">
+                    <h4 class="section-subheading"><i class="fas fa-users action-icon-primary"></i> Customer accounts & transaction history</h4>
+                    <div id="profileCustomerHistory"></div>
+                    <button type="button" class="btn-danger account-signout" onclick="authManager.logoutUser()"><i class="fas fa-right-from-bracket"></i> Sign out</button>
+                </section>
+
+                <section id="account-settings-panel" class="account-panel hidden" role="tabpanel" aria-labelledby="account-tab-settings">
+                    <div class="account-settings-intro">
+                        <h4>Workspace preferences</h4>
+                        <p>Personalize this device. Your sales and receipt data are not changed by these options.</p>
+                    </div>
+                    <div class="account-form-grid">
+                        <div>
+                            <label class="small-label" for="settingTheme">Color theme</label>
+                            <select id="settingTheme">
+                                <option value="system">Use device setting</option>
+                                <option value="light">Light</option>
+                                <option value="dark">Dark</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="small-label" for="settingAccent">Accent color</label>
+                            <select id="settingAccent">
+                                <option value="orange">Easy Receipt orange</option>
+                                <option value="blue">Ocean blue</option>
+                                <option value="green">Emerald green</option>
+                                <option value="violet">Royal violet</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="small-label" for="settingDensity">Workspace spacing</label>
+                            <select id="settingDensity">
+                                <option value="comfortable">Comfortable</option>
+                                <option value="compact">Compact</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="small-label" for="settingDefaultTax">Default tax (%)</label>
+                            <input type="number" id="settingDefaultTax" min="0" max="100" step="0.01" inputmode="decimal">
+                            <span class="account-field-hint">Prefills the tax field when the app starts; it won't change a receipt already being edited.</span>
+                        </div>
+                    </div>
+                    <div class="account-actions">
+                        <button type="button" class="btn-primary" onclick="authManager.saveSettings()"><i class="fas fa-check"></i> Save preferences</button>
+                        <button type="button" class="btn-secondary" onclick="authManager.resetSettings()"><i class="fas fa-rotate-left"></i> Restore defaults</button>
+                    </div>
+                    <p id="settingsSaveStatus" class="account-status" aria-live="polite"></p>
+                </section>
             </div>
 
             <div id="profile-setup-view">
@@ -289,7 +372,7 @@
                     <p class="paragraph-small">Sign in with your Google account to sync your receipts and profile photo
                         automatically.</p>
                     <div id="g_id_onload"
-                        data-client_id="140939199464-qebi1pvbll1q8e4e861pckst38t8e7n3.apps.googleusercontent.com"
+                        data-client_id="290599167080-9bslph3ri9p0v4kbhu2qlnja85sncvcd.apps.googleusercontent.com"
                         data-callback="handleCredentialResponse" data-auto_prompt="false"></div>
                     <div class="g_id_signin" data-type="standard"></div>
                 </div>
@@ -686,9 +769,11 @@
     </footer>
     <script src="main.js"></script>
     <script>
-        window.handleCredentialResponse = function (response) {
+        window.handleCredentialResponse = async function (response) {
             try {
                 const payload = JSON.parse(atob(response.credential.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+                if (!window.easyReceiptSignInWithGoogle) throw new Error('Firebase sign-in is not ready.');
+                await window.easyReceiptSignInWithGoogle(response.credential);
                 authManager.saveProfile({ name: payload.name || 'Google User', email: payload.email || '', picture: payload.picture || null, provider: 'google' });
                 document.getElementById('profile-setup-view').style.display = 'none';
                 document.getElementById('profile-active-view').classList.remove('hidden');

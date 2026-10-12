@@ -165,14 +165,19 @@
     </script>
     <script type="module">
         import { auth } from './firebase-config.js';
-        import { signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js';
+        import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js';
 
-        const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz-UEZIY0HMOKArHj_t921hP3oXU2icU9rll0-Id5k35oAxVQBRjDZQdpdMZ6C1ZS5dag/exec';
-
-        //check if the user is already logged in and redirect straight into the app if they are
-        if (localStorage.getItem('isLoggedIn') === 'true') {
-            window.location.href = '../index.html';
-        }
+        const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx2vAFTPPvCwnK7rI0OQuvuesMCvqQ9NSHX2tx94z-axY7eEvF7T4cU3WRwpgj021Ct/exec';
+        let loginAttemptInProgress = false;
+        onAuthStateChanged(auth, user => {
+            if (loginAttemptInProgress) return;
+            if (user?.emailVerified) {
+                window.location.href = '../index.html';
+                return;
+            }
+            if (user) void signOut(auth);
+            localStorage.removeItem('isLoggedIn');
+        });
 
         // Add JavaScript for form validation and credential checking
         document.querySelector('form').addEventListener('submit', function(event) {
@@ -186,6 +191,7 @@
                 return;
             }
 
+            loginAttemptInProgress = true;
             signIn(username, password);
         });
 
@@ -207,9 +213,13 @@
                     provider: 'email'
                 }));
                 logActivity(credential.user.email, 'Logged In', 'Signed in successfully');
-                await notifyAuthEvent('login-success', { idToken: await credential.user.getIdToken() });
+                await notifyAuthEvent('login-success', {
+                    idToken: await credential.user.getIdToken(),
+                    device: await getDeviceDetails()
+                });
                 window.location.href = '../index.html';
             } catch (error) {
+                loginAttemptInProgress = false;
                 logActivity(email, 'Failed Login', 'Incorrect email or password');
                 void notifyAuthEvent('login-failed', { email: email });
                 alert('Incorrect email or password. Please try again.');
@@ -226,6 +236,41 @@
             } catch (error) {
                 console.warn('Could not send sign-in security notification.');
             }
+        }
+
+        async function getDeviceDetails() {
+            let deviceId = localStorage.getItem('p3_security_device_id');
+            if (!deviceId || !/^[a-f0-9-]{32,64}$/i.test(deviceId)) {
+                deviceId = crypto.randomUUID();
+                localStorage.setItem('p3_security_device_id', deviceId);
+            }
+
+            const userAgentData = navigator.userAgentData;
+            let highEntropy = {};
+            if (userAgentData?.getHighEntropyValues) {
+                try {
+                    highEntropy = await userAgentData.getHighEntropyValues(['model']);
+                } catch (error) {
+                    console.warn('Could not read the device model for the security notification.', error);
+                }
+            }
+            const userAgent = navigator.userAgent;
+            const androidModel = userAgent.match(/\bAndroid [^;)]*;\s*([^;)]+)\s*(?:Build\/[^;)]+)?/i)?.[1]?.trim();
+            const model = highEntropy.model || androidModel || (/iPhone|iPad/i.test(userAgent) ? userAgent.match(/iPhone|iPad/i)[0] : '');
+            const brands = userAgentData?.brands?.filter(brand => !/not.?a.?brand/i.test(brand.brand)) || [];
+            const browser = brands[0]?.brand || (
+                /Edg\//.test(userAgent) ? 'Microsoft Edge' :
+                /Firefox\//.test(userAgent) ? 'Firefox' :
+                /Chrome\//.test(userAgent) ? 'Chrome' :
+                /Safari\//.test(userAgent) ? 'Safari' : 'Unknown browser'
+            );
+
+            return {
+                id: deviceId,
+                model: model || (userAgentData?.mobile ? 'Mobile device' : 'Computer'),
+                platform: userAgentData?.platform || navigator.platform || 'Unknown platform',
+                browser
+            };
         }
 
         function logActivity(username, action, detail) {

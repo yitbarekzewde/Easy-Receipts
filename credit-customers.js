@@ -391,7 +391,7 @@
                 managedItem,
                 stockItem,
                 available: Math.max(0, Number(stockItem?.qty || 0)),
-                price: Number(managedItem.price || 0)
+                price: stockItem ? getStockPrice(stockItem) : Number(managedItem.price || 0)
             };
         }).sort((first, second) => first.managedItem.originalName.localeCompare(second.managedItem.originalName));
     }

@@ -1,4 +1,4 @@
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz-UEZIY0HMOKArHj_t921hP3oXU2icU9rll0-Id5k35oAxVQBRjDZQdpdMZ6C1ZS5dag/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx2vAFTPPvCwnK7rI0OQuvuesMCvqQ9NSHX2tx94z-axY7eEvF7T4cU3WRwpgj021Ct/exec';
 const CUSTOMER_RECEIPT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxnzc70hmMw9G8fIPRX1eiypQfglG5Yw9in3XLVPGDx02GOzk6ibMnR2y7M7WfeaDdpUA/exec';
 const SUPPORT_ATTACHMENTS_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwojlEIYRaWg59eAwlR_3czYVDN1lrJCw8kcj13sJC4z1etfE3qj4mm-yXEMapOGWmorw/exec';
 let allowDeviceBackExit = false;
@@ -22,8 +22,157 @@ class AuthManager {
     constructor() {
         this.currentUser = null;
         this.pendingSetupPic = null;
+        this.settings = this.getDefaultSettings();
     }
     getStoredProfile() { return JSON.parse(localStorage.getItem('p3_user_profile') || 'null'); }
+    getDefaultSettings() { return { theme: 'system', accent: 'orange', density: 'comfortable', defaultTax: '0.00' }; }
+    getStoredSettings() {
+        const defaults = this.getDefaultSettings();
+        try {
+            const saved = JSON.parse(localStorage.getItem('p3_app_settings') || 'null');
+            if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return defaults;
+            const themes = ['system', 'light', 'dark'];
+            const accents = ['orange', 'blue', 'green', 'violet'];
+            const densities = ['comfortable', 'compact'];
+            const tax = Number(saved.defaultTax);
+            return {
+                theme: themes.includes(saved.theme) ? saved.theme : defaults.theme,
+                accent: accents.includes(saved.accent) ? saved.accent : defaults.accent,
+                density: densities.includes(saved.density) ? saved.density : defaults.density,
+                defaultTax: Number.isFinite(tax) && tax >= 0 && tax <= 100 ? tax.toFixed(2) : defaults.defaultTax
+            };
+        } catch (error) {
+            console.error('Could not read saved workspace preferences.', error);
+            return defaults;
+        }
+    }
+    loadSettings() {
+        this.settings = this.getStoredSettings();
+        this.applySettings(true);
+        this.renderSettings();
+    }
+    applySettings(setDefaultTax) {
+        const colors = { orange: '#f97316', blue: '#2563eb', green: '#059669', violet: '#7c3aed' };
+        const wantsDark = this.settings.theme === 'dark'
+            || (this.settings.theme === 'system' && window.matchMedia?.('(prefers-color-scheme: dark)').matches);
+        document.body.dataset.theme = wantsDark ? 'dark' : 'light';
+        document.documentElement.style.setProperty('--primary', colors[this.settings.accent] || colors.orange);
+        document.body.classList.toggle('compact-mode', this.settings.density === 'compact');
+        const taxInput = document.getElementById('tax');
+        if (setDefaultTax && taxInput && (taxInput.value === '0.00' || taxInput.value === '')) {
+            taxInput.value = this.settings.defaultTax;
+        }
+    }
+    renderSettings() {
+        const theme = document.getElementById('settingTheme');
+        const accent = document.getElementById('settingAccent');
+        const density = document.getElementById('settingDensity');
+        const tax = document.getElementById('settingDefaultTax');
+        if (theme) theme.value = this.settings.theme;
+        if (accent) accent.value = this.settings.accent;
+        if (density) density.value = this.settings.density;
+        if (tax) tax.value = this.settings.defaultTax;
+    }
+    saveSettings() {
+        const status = document.getElementById('settingsSaveStatus');
+        const tax = Number(document.getElementById('settingDefaultTax')?.value);
+        if (!Number.isFinite(tax) || tax < 0 || tax > 100) {
+            if (status) {
+                status.textContent = 'Enter a default tax between 0 and 100%.';
+                status.classList.add('account-status-error');
+            }
+            return;
+        }
+        const nextSettings = {
+            theme: ['system', 'light', 'dark'].includes(document.getElementById('settingTheme')?.value) ? document.getElementById('settingTheme').value : 'system',
+            accent: ['orange', 'blue', 'green', 'violet'].includes(document.getElementById('settingAccent')?.value) ? document.getElementById('settingAccent').value : 'orange',
+            density: ['comfortable', 'compact'].includes(document.getElementById('settingDensity')?.value) ? document.getElementById('settingDensity').value : 'comfortable',
+            defaultTax: tax.toFixed(2)
+        };
+        try {
+            localStorage.setItem('p3_app_settings', JSON.stringify(nextSettings));
+        } catch (error) {
+            console.error('Could not save workspace preferences.', error);
+            if (status) {
+                status.textContent = 'Preferences could not be saved on this device.';
+                status.classList.add('account-status-error');
+            }
+            return;
+        }
+        this.settings = nextSettings;
+        this.applySettings(false);
+        if (status) {
+            status.textContent = 'Preferences saved on this device.';
+            status.classList.remove('account-status-error');
+        }
+    }
+    resetSettings() {
+        const defaults = this.getDefaultSettings();
+        try {
+            localStorage.setItem('p3_app_settings', JSON.stringify(defaults));
+        } catch (error) {
+            console.error('Could not restore workspace preferences.', error);
+            const status = document.getElementById('settingsSaveStatus');
+            if (status) {
+                status.textContent = 'Default preferences could not be saved on this device.';
+                status.classList.add('account-status-error');
+            }
+            return;
+        }
+        this.settings = defaults;
+        this.applySettings(false);
+        this.renderSettings();
+        const status = document.getElementById('settingsSaveStatus');
+        if (status) {
+            status.textContent = 'Default preferences restored.';
+            status.classList.remove('account-status-error');
+        }
+    }
+    showAccountTab(tab) {
+        const settingsSelected = tab === 'settings';
+        document.getElementById('account-profile-panel')?.classList.toggle('hidden', settingsSelected);
+        document.getElementById('account-settings-panel')?.classList.toggle('hidden', !settingsSelected);
+        const profileTab = document.getElementById('account-tab-profile');
+        const settingsTab = document.getElementById('account-tab-settings');
+        profileTab?.classList.toggle('active', !settingsSelected);
+        settingsTab?.classList.toggle('active', settingsSelected);
+        profileTab?.setAttribute('aria-selected', String(!settingsSelected));
+        settingsTab?.setAttribute('aria-selected', String(settingsSelected));
+        if (settingsSelected) this.renderSettings();
+    }
+    saveProfileDetails(event) {
+        event.preventDefault();
+        if (!this.currentUser) return alert('Sign in or create a profile before saving account details.');
+        const name = document.getElementById('accountDisplayName').value.trim();
+        if (!name) return alert('Display name is required.');
+        const updates = {
+            ...this.currentUser,
+            name,
+            businessName: document.getElementById('accountBusinessName').value.trim(),
+            phone: document.getElementById('accountPhone').value.trim(),
+            role: document.getElementById('accountRole').value
+        };
+        if (this.currentUser.provider === 'manual') {
+            updates.email = document.getElementById('accountEmail').value.trim();
+        }
+        this.saveProfile({
+            ...updates
+        });
+        const status = document.getElementById('profileSaveStatus');
+        if (status) status.textContent = 'Profile saved on this device.';
+    }
+    downloadProfile() {
+        if (!this.currentUser) return alert('There is no profile to export.');
+        const profile = { ...this.currentUser };
+        delete profile.picture;
+        const blob = new Blob([JSON.stringify(profile, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${(profile.name || 'easy-receipt-profile').replace(/[^a-z0-9_-]+/gi, '-').toLowerCase()}-profile.json`;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
 
     saveProfile(profileObj) {
         this.currentUser = profileObj;
@@ -35,10 +184,30 @@ class AuthManager {
         const profEmail = document.getElementById('prof-email');
         if (profName) profName.innerText = profileObj.name || '';
         if (profEmail) profEmail.innerText = profileObj.email || '';
+        const displayName = document.getElementById('accountDisplayName');
+        const email = document.getElementById('accountEmail');
+        const emailHint = document.getElementById('accountEmailHint');
+        const businessName = document.getElementById('accountBusinessName');
+        const phone = document.getElementById('accountPhone');
+        const role = document.getElementById('accountRole');
+        if (displayName) displayName.value = profileObj.name || '';
+        if (email) {
+            email.value = profileObj.email || '';
+            email.readOnly = profileObj.provider !== 'manual';
+        }
+        if (emailHint) {
+            emailHint.textContent = profileObj.provider === 'manual'
+                ? 'Profile contact email, stored on this device.'
+                : 'Sign-in email managed by your identity provider.';
+        }
+        if (businessName) businessName.value = profileObj.businessName || '';
+        if (phone) phone.value = profileObj.phone || '';
+        if (role) role.value = ['Owner', 'Manager', 'Cashier'].includes(profileObj.role) ? profileObj.role : 'Owner';
         
         this.applyAvatarEverywhere(profileObj.picture || null);
     }
     loadUserData() {
+        this.loadSettings();
         const saved = this.getStoredProfile();
         if (saved && saved.name && saved.email) {
             this.saveProfile(saved);
@@ -116,8 +285,16 @@ class AuthManager {
             }
         }
     }
-    logoutUser() {
+    async logoutUser() {
         if (!confirm("Are you sure you want to sign out?")) return;
+        if (window.easyReceiptSignOut) {
+            try {
+                await window.easyReceiptSignOut();
+            } catch (error) {
+                console.error('Could not sign out of Firebase.', error);
+                return alert('Could not sign out. Please check your connection and try again.');
+            }
+        }
         localStorage.removeItem('p3_user_profile');
         localStorage.removeItem('isLoggedIn');
         this.currentUser = null;
@@ -136,7 +313,7 @@ class AuthManager {
         if (!nameInput || !emailInput) return alert('Manual setup form is unavailable. Please reload the page.');
         const name = nameInput.value.trim(), email = emailInput.value.trim();
         if (!name || !email) return alert('Please fill in both name and email.');
-        this.saveProfile({ name, email, picture: this.pendingSetupPic || null, provider: 'manual' });
+        this.saveProfile({ name, email, picture: this.pendingSetupPic || null, provider: 'manual', role: 'Owner' });
         this.pendingSetupPic = null;
         document.getElementById('profileForm').reset();
         document.getElementById('profile-setup-view').style.display = 'none';
@@ -145,8 +322,16 @@ class AuthManager {
         cartManager.updateUI();
     }
     closeAuthModal() { document.getElementById('authModal').style.display = 'none'; }
-    openAuthModal() {
+    openAuthModal(section = 'profile') {
         document.getElementById('authModal').style.display = 'flex';
+        if (this.currentUser) {
+            document.getElementById('profile-setup-view').style.display = 'none';
+            document.getElementById('profile-active-view').classList.remove('hidden');
+            this.showAccountTab(section === 'settings' ? 'settings' : 'profile');
+        } else {
+            document.getElementById('profile-setup-view').style.display = 'block';
+            document.getElementById('profile-active-view').classList.add('hidden');
+        }
         customerManager.renderCustomersList();
     }
 }
@@ -529,7 +714,47 @@ class InventoryPriceManager {
         if (Object.keys(prices).length !== Object.keys(stored).length) localStorage.setItem('p3_auto_prices', JSON.stringify(prices));
         return prices;
     }
-    saveAutoPrices(pricesObj) { localStorage.setItem('p3_auto_prices', JSON.stringify(pricesObj)); this.renderPriceManagementTable(); }
+    saveAutoPrices(pricesObj) {
+        localStorage.setItem('p3_auto_prices', JSON.stringify(pricesObj));
+        this.renderProductSuggestions();
+        this.renderStockFormSuggestions();
+        this.renderPriceManagementTable();
+    }
+
+    renderProductSuggestions() {
+        const datalist = document.getElementById('managedProductSuggestions');
+        if (!datalist) return;
+        const prices = this.getAutoPrices();
+        datalist.innerHTML = Object.values(prices)
+            .sort((first, second) => first.originalName.localeCompare(second.originalName))
+            .map(item => `<option value="${String(item.originalName).replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">${Number(item.price) > 0 ? `R ${Number(item.price).toFixed(2)}` : 'Price not set'}</option>`)
+            .join('');
+    }
+
+    renderStockFormSuggestions() {
+        const nameList = document.getElementById('stockItemNameSuggestions');
+        const costList = document.getElementById('stockCostPriceSuggestions');
+        const sellList = document.getElementById('stockSellPriceSuggestions');
+        if (!nameList || typeof stockManager === 'undefined') return;
+        const savedBarcodedNames = new Set(stockManager.getStoredStock()
+            .filter(item => String(item.barcode || '').trim())
+            .map(item => String(item.name || '').trim().toLowerCase()));
+        const suggestions = Object.values(this.getAutoPrices())
+            .filter(item => item.originalName && !savedBarcodedNames.has(item.originalName.trim().toLowerCase()))
+            .sort((first, second) => first.originalName.localeCompare(second.originalName));
+        nameList.innerHTML = suggestions
+            .map(item => `<option value="${this.escapeAttribute(item.originalName)}">${Number(item.price) > 0 ? `Sell R ${Number(item.price).toFixed(2)}` : 'Price not set'}</option>`)
+            .join('');
+        const prices = [...new Set(suggestions.flatMap(item => [Number(item.costPrice), Number(item.price)].filter(price => price > 0)))]
+            .sort((first, second) => first - second);
+        const priceOptions = prices.map(price => `<option value="${price.toFixed(2)}"></option>`).join('');
+        if (costList) costList.innerHTML = priceOptions;
+        if (sellList) sellList.innerHTML = priceOptions;
+    }
+
+    escapeAttribute(value) {
+        return String(value || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
 
     lookupPrice(itemName) {
         const lookup = itemName.trim().toLowerCase();
@@ -596,25 +821,659 @@ class InventoryPriceManager {
         if (!tbody) return;
         const prices = this.getAutoPrices();
         const keys = Object.keys(prices);
-        if (!keys.length) { tbody.innerHTML = `<tr><td colspan="3" class="text-muted text-center">No stored auto-fill prices found.</td></tr>`; return; }
+        if (!keys.length) { tbody.innerHTML = `<tr><td colspan="4" class="text-muted text-center">No stored auto-fill prices found.</td></tr>`; return; }
         tbody.innerHTML = keys.map(k => `
             <tr>
                 <td><input type="text" value="${cartManager.escapeHtml(formatItemName(prices[k].originalName))}" onchange="inventoryPriceManager.updateManagementKey('${k}', 'name', this.value)"></td>
-                <td><input type="number" min="0" step="1" value="${prices[k].price}" onchange="inventoryPriceManager.updateManagementKey('${k}', 'price', this.value)"></td>
+                <td><input type="number" min="0" step="0.01" value="${prices[k].price || 0}" onchange="inventoryPriceManager.updateManagementKey('${k}', 'price', this.value)"></td>
+                <td><input type="number" min="0" step="0.01" value="${prices[k].costPrice || 0}" onchange="inventoryPriceManager.updateManagementKey('${k}', 'costPrice', this.value)"></td>
                 <td><button class="btn-danger" style="padding: 2px 8px;" onclick="inventoryPriceManager.deleteManagementKey('${k}')"><i class="fas fa-trash"></i></button></td>
             </tr>`).join('');
     }
     updateManagementKey(key, property, value) {
         let prices = this.getAutoPrices();
         if (!prices[key]) return;
-        if (property === 'name') prices[key].originalName = formatItemName(value);
-        if (property === 'price') prices[key].price = Math.max(0, Math.floor(Number(value) || 0));
+        if (property === 'name') {
+            const newName = String(value || '').trim();
+            if (!newName) return;
+            const newKey = newName.toLowerCase();
+            const existingPrice = prices[key].price;
+            delete prices[key];
+            prices[newKey] = { originalName: formatItemName(newName), price: existingPrice, costPrice: prices[key].costPrice || 0 };
+        }
+        if (property === 'price') prices[key].price = Math.max(0, Number(value) || 0);
+        if (property === 'costPrice') prices[key].costPrice = Math.max(0, Number(value) || 0);
         this.saveAutoPrices(prices);
     }
     deleteManagementKey(key) {
         let prices = this.getAutoPrices();
         delete prices[key];
         this.saveAutoPrices(prices);
+    }
+}
+
+class StockManager {
+    constructor() {
+        this.auditMode = false;
+        this.sortKey = 'name';
+        this.sortDirection = 1;
+        this.stockBatchScans = [];
+    }
+
+    getStoredStock() {
+        try {
+            return JSON.parse(localStorage.getItem('p3_stock_items') || '[]');
+        } catch (error) {
+            return [];
+        }
+    }
+
+    setStoredStock(items) {
+        localStorage.setItem('p3_stock_items', JSON.stringify(items));
+    }
+
+    getAuditLog() {
+        try {
+            return JSON.parse(localStorage.getItem('p3_stock_audit') || '[]');
+        } catch (error) {
+            return [];
+        }
+    }
+
+    setAuditLog(items) {
+        localStorage.setItem('p3_stock_audit', JSON.stringify(items));
+    }
+
+    ensureDefaultStock() {
+        const current = this.getStoredStock();
+        if (current.length) return current;
+        const defaults = [
+            { id: 1, barcode: '1001', name: 'Huletts 1kg', category: 'Groceries', supplier: 'Local Supply', costPrice: 40, sellPrice: 70, qty: 20, lowStockThreshold: 5, updatedAt: new Date().toISOString() },
+            { id: 2, barcode: '1002', name: 'Powder Soap 500g', category: 'Household', supplier: 'Local Supply', costPrice: 25, sellPrice: 45, qty: 12, lowStockThreshold: 4, updatedAt: new Date().toISOString() },
+            { id: 3, barcode: '1003', name: 'Polony 2.5kg', category: 'Meat', supplier: 'Local Supply', costPrice: 65, sellPrice: 110, qty: 9, lowStockThreshold: 3, updatedAt: new Date().toISOString() }
+        ];
+        this.setStoredStock(defaults);
+        return defaults;
+    }
+
+    normalizeSearch(value) {
+        return String(value || '').trim().toLowerCase();
+    }
+
+    findItemByBarcodeOrName(value) {
+        const query = String(value || '').trim().toLowerCase();
+        if (!query) return null;
+        const items = this.getStoredStock();
+        const barcodeMatch = items.find(item => String(item.barcode || '').trim().toLowerCase() === query || String(item.caseBarcode || '').trim().toLowerCase() === query);
+        if (barcodeMatch) return barcodeMatch;
+        return items.find(item => {
+            const nameMatch = String(item.name || '').toLowerCase() === query;
+            const containsName = String(item.name || '').toLowerCase().includes(query);
+            return nameMatch || containsName;
+        }) || null;
+    }
+
+    getLowStockItems() {
+        return this.getStoredStock().filter(item => Number(item.qty || 0) <= Number(item.lowStockThreshold || 0));
+    }
+
+    renderLowStockAlert() {
+        const banner = document.getElementById('stockLowAlertBanner');
+        if (!banner) return;
+        const lowItems = this.getLowStockItems();
+        if (!lowItems.length) {
+            banner.classList.add('hidden');
+            banner.textContent = '';
+            return;
+        }
+        banner.classList.remove('hidden');
+        const names = lowItems.map(item => `${item.name} (${item.qty})`).join(', ');
+        banner.textContent = `Low stock alert: ${names}`;
+    }
+
+    openStockItemForm(item = null) {
+        const form = document.getElementById('stockFormCard');
+        if (!form) return;
+        this.stockBatchScans = [];
+        const scanLog = document.getElementById('stockScannedBarcodes');
+        if (scanLog) scanLog.value = '';
+        const formTitle = document.getElementById('stockFormTitle');
+        const fields = {
+            barcode: document.getElementById('stockBarcodeInput'),
+            caseBarcode: document.getElementById('stockCaseBarcodeInput'),
+            unitsPerBox: document.getElementById('stockUnitsPerBoxInput'),
+            name: document.getElementById('stockNameInput'),
+            category: document.getElementById('stockCategoryInput'),
+            supplier: document.getElementById('stockSupplierInput'),
+            costPrice: document.getElementById('stockCostPriceInput'),
+            sellPrice: document.getElementById('stockSellPriceInput'),
+            qty: document.getElementById('stockQtyInput'),
+            threshold: document.getElementById('stockThresholdInput')
+        };
+
+        if (formTitle) formTitle.textContent = item ? 'Edit Stock Item' : 'Add Stock Item';
+        if (fields.barcode) fields.barcode.value = item?.barcode || '';
+        if (fields.caseBarcode) fields.caseBarcode.value = item?.caseBarcode || '';
+        if (fields.unitsPerBox) fields.unitsPerBox.value = item?.unitsPerBox ?? 1;
+        if (fields.name) fields.name.value = item?.name || '';
+        if (fields.category) fields.category.value = item?.category || '';
+        if (fields.supplier) fields.supplier.value = item?.supplier || '';
+        if (fields.costPrice) fields.costPrice.value = item?.costPrice ?? '';
+        if (fields.sellPrice) fields.sellPrice.value = item?.sellPrice ?? '';
+        if (fields.qty) fields.qty.value = item?.qty ?? '';
+        if (fields.threshold) fields.threshold.value = item?.lowStockThreshold ?? '';
+        inventoryPriceManager.renderStockFormSuggestions();
+        form.classList.remove('hidden');
+    }
+
+    fillSuggestedStockPrices() {
+        const name = document.getElementById('stockNameInput')?.value.trim() || '';
+        const suggestion = inventoryPriceManager.lookupPrice(name);
+        if (!suggestion) return;
+        const savedItem = this.getStoredStock().some(item => String(item.barcode || '').trim() && String(item.name || '').trim().toLowerCase() === name.toLowerCase());
+        if (savedItem) return;
+        const sellPrice = document.getElementById('stockSellPriceInput');
+        const costPrice = document.getElementById('stockCostPriceInput');
+        if (sellPrice && Number(suggestion.price) > 0) sellPrice.value = Number(suggestion.price).toFixed(2);
+        if (costPrice && Number(suggestion.costPrice) > 0) costPrice.value = Number(suggestion.costPrice).toFixed(2);
+    }
+
+    closeStockItemForm() {
+        const form = document.getElementById('stockFormCard');
+        if (form) form.classList.add('hidden');
+        this.stockBatchScans = [];
+        ['stockBarcodeInput','stockCaseBarcodeInput','stockUnitsPerBoxInput','stockScannedBarcodes','stockNameInput','stockCategoryInput','stockSupplierInput','stockCostPriceInput','stockSellPriceInput','stockQtyInput','stockThresholdInput'].forEach(id => {
+            const field = document.getElementById(id);
+            if (field) field.value = '';
+        });
+    }
+
+    addStockItemBarcode(barcode) {
+        const value = String(barcode || '').trim();
+        const input = document.getElementById('stockBarcodeInput');
+        const quantityInput = document.getElementById('stockQtyInput');
+        const scanLog = document.getElementById('stockScannedBarcodes');
+        const status = document.getElementById('stockScannerStatus');
+        if (!value || !input || !quantityInput) return;
+
+        const currentBarcode = input.value.trim();
+        if (currentBarcode && currentBarcode.toLowerCase() !== value.toLowerCase()) {
+            if (status) status.innerHTML = '<span class="status-error">This form is already counting a different item barcode. Start a separate stock item for another product.</span>';
+            return;
+        }
+
+        if (!currentBarcode) input.value = value;
+        this.stockBatchScans.push(value);
+        quantityInput.value = Math.max(0, Math.floor(Number(quantityInput.value) || 0)) + 1;
+        if (scanLog) scanLog.value = this.stockBatchScans.join('\n');
+        if (status) status.innerHTML = `<span class="status-success">Counted ${this.stockBatchScans.length} unit${this.stockBatchScans.length === 1 ? '' : 's'} for ${this.escapeHtml(value)}.</span>`;
+    }
+
+    clearStockBatchScans() {
+        const quantityInput = document.getElementById('stockQtyInput');
+        const scanLog = document.getElementById('stockScannedBarcodes');
+        const status = document.getElementById('stockScannerStatus');
+        if (quantityInput) quantityInput.value = Math.max(0, (Number(quantityInput.value) || 0) - this.stockBatchScans.length);
+        this.stockBatchScans = [];
+        if (scanLog) scanLog.value = '';
+        if (status) status.textContent = 'Scanned units cleared.';
+    }
+
+    saveStockItem() {
+        const values = {
+            barcode: document.getElementById('stockBarcodeInput')?.value.trim() || '',
+            caseBarcode: document.getElementById('stockCaseBarcodeInput')?.value.trim() || '',
+            unitsPerBox: Number(document.getElementById('stockUnitsPerBoxInput')?.value || 1),
+            name: document.getElementById('stockNameInput')?.value.trim() || '',
+            category: document.getElementById('stockCategoryInput')?.value.trim() || 'General',
+            supplier: document.getElementById('stockSupplierInput')?.value.trim() || 'Unknown',
+            costPrice: Number(document.getElementById('stockCostPriceInput')?.value || 0),
+            sellPrice: Number(document.getElementById('stockSellPriceInput')?.value || 0),
+            qty: Number(document.getElementById('stockQtyInput')?.value || 0),
+            lowStockThreshold: Number(document.getElementById('stockThresholdInput')?.value || 0)
+        };
+
+        if (!values.name) return alert('Item name is required.');
+        if (!Number.isFinite(values.sellPrice) || values.sellPrice < 0) return alert('Please enter a valid selling price.');
+        if (!Number.isInteger(values.unitsPerBox) || values.unitsPerBox < 1) return alert('Units per box must be a whole number greater than zero.');
+
+        const items = this.getStoredStock();
+        if (!values.barcode) values.barcode = this.generateBarcode(items);
+        if (values.caseBarcode && values.caseBarcode.toLowerCase() === values.barcode.toLowerCase()) return alert('The box barcode must differ from the item barcode.');
+        const existingIndex = items.findIndex(item => String(item.barcode || '').toLowerCase() === values.barcode.toLowerCase() || String(item.name || '').toLowerCase() === values.name.toLowerCase());
+        const duplicateBarcode = items.some((item, index) => index !== existingIndex && [item.barcode, item.caseBarcode].some(barcode => String(barcode || '').trim().toLowerCase() === values.barcode.toLowerCase()));
+        if (duplicateBarcode) return alert('This item barcode is already assigned to another item.');
+        const duplicateCaseBarcode = values.caseBarcode && items.some((item, index) => index !== existingIndex && [item.barcode, item.caseBarcode].some(barcode => String(barcode || '').trim().toLowerCase() === values.caseBarcode.toLowerCase()));
+        if (duplicateCaseBarcode) return alert('This box barcode is already assigned to another item.');
+
+        const preparedItem = {
+            id: existingIndex >= 0 ? items[existingIndex].id : Date.now(),
+            barcode: values.barcode,
+            caseBarcode: values.caseBarcode,
+            unitsPerBox: values.unitsPerBox,
+            name: values.name,
+            category: values.category,
+            supplier: values.supplier,
+            costPrice: Math.max(0, values.costPrice || 0),
+            sellPrice: Math.max(0, values.sellPrice || 0),
+            qty: Math.max(0, Math.round(values.qty || 0)),
+            lowStockThreshold: Math.max(0, Math.round(values.lowStockThreshold || 0)),
+            updatedAt: new Date().toISOString()
+        };
+
+        if (existingIndex >= 0) {
+            items[existingIndex] = { ...items[existingIndex], ...preparedItem };
+        } else {
+            items.push(preparedItem);
+        }
+
+        this.setStoredStock(items);
+        inventoryPriceManager.registerOrderingItem(preparedItem.name, preparedItem.sellPrice, preparedItem.costPrice);
+        this.renderStockTable();
+        this.closeStockItemForm();
+        this.renderLowStockAlert();
+        alert('Stock item saved successfully.');
+    }
+
+    generateBarcode(items = this.getStoredStock()) {
+        let barcode;
+        do {
+            barcode = `AUTO${Date.now()}${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
+        } while (items.some(item => String(item.barcode || '').toLowerCase() === barcode.toLowerCase()));
+        return barcode;
+    }
+
+    editStockItem(id) {
+        const items = this.getStoredStock();
+        const item = items.find(entry => Number(entry.id) === Number(id));
+        if (item) this.openStockItemForm(item);
+    }
+
+    sortStockItems(key) {
+        const items = this.getStoredStock();
+        if (this.sortKey === key) this.sortDirection *= -1;
+        this.sortKey = key;
+        const sorted = [...items].sort((left, right) => {
+            const leftValue = left[key] ?? '';
+            const rightValue = right[key] ?? '';
+            const compareResult = String(leftValue).localeCompare(String(rightValue), undefined, { numeric: true });
+            return compareResult * this.sortDirection;
+        });
+        this.setStoredStock(sorted);
+        this.renderStockTable();
+    }
+
+    renderStockTable() {
+        const tbody = document.getElementById('stockTableBody');
+        if (!tbody) return;
+        const query = this.normalizeSearch(document.getElementById('stockSearchInput')?.value);
+        const items = this.getStoredStock().filter(item => !query || String(item.name || '').toLowerCase().includes(query) || String(item.barcode || '').toLowerCase().includes(query) || String(item.category || '').toLowerCase().includes(query));
+        if (!items.length) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center">No stock items found.</td></tr>';
+            this.renderLowStockAlert();
+            return;
+        }
+
+        tbody.innerHTML = items.map(item => `
+            <tr class="${Number(item.qty || 0) <= Number(item.lowStockThreshold || 0) ? 'low-stock-row' : ''}">
+                <td>${this.escapeHtml(item.name || '-')}</td>
+                <td>${this.escapeHtml(item.barcode || '-')}</td>
+                <td>${this.escapeHtml(item.category || '-')}</td>
+                <td>R ${Number(item.costPrice || 0).toFixed(2)}</td>
+                <td>R ${Number(item.sellPrice || 0).toFixed(2)}</td>
+                <td>${Number(item.qty || 0)}</td>
+                <td>
+                    <div class="stock-actions">
+                        <button type="button" class="inline-btn-square small-stock-btn" onclick="stockManager.updateItemQty(${item.id}, 1, 'restock')">+</button>
+                        <button type="button" class="inline-btn-square small-stock-btn" onclick="stockManager.updateItemQty(${item.id}, 1, 'sold')">-</button>
+                        <button type="button" class="btn-primary btn-inline" onclick="stockManager.editStockItem(${item.id})">Edit</button>
+                        <button type="button" class="btn-danger btn-inline" onclick="stockManager.deleteItem(${item.id})">Delete</button>
+                    </div>
+                </td>
+            </tr>`).join('');
+
+        this.renderLowStockAlert();
+    }
+
+    escapeHtml(value) {
+        return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    }
+
+    deleteItem(id) {
+        const items = this.getStoredStock().filter(item => Number(item.id) !== Number(id));
+        this.setStoredStock(items);
+        this.renderStockTable();
+    }
+
+    updateItemQty(id, increment, mode = 'restock') {
+        const items = this.getStoredStock();
+        const item = items.find(entry => Number(entry.id) === Number(id));
+        if (!item) return;
+
+        if (mode === 'sold') {
+            item.qty = Math.max(0, Number(item.qty || 0) - increment);
+        } else {
+            item.qty = Math.max(0, Number(item.qty || 0) + increment);
+        }
+        item.updatedAt = new Date().toISOString();
+
+        const auditEvent = {
+            id: Date.now(),
+            itemId: item.id,
+            name: item.name,
+            barcode: item.barcode,
+            mode,
+            qty: increment,
+            remaining: item.qty,
+            timestamp: new Date().toISOString()
+        };
+
+        const auditLog = this.getAuditLog();
+        auditLog.push(auditEvent);
+        this.setAuditLog(auditLog);
+        this.setStoredStock(items);
+        this.renderStockTable();
+    }
+
+    toggleAuditMode() {
+        this.auditMode = !this.auditMode;
+        const panel = document.getElementById('stockAuditPanel');
+        if (panel) panel.classList.toggle('hidden', !this.auditMode);
+        const summary = document.getElementById('stockAuditSummary');
+        if (summary) summary.textContent = this.auditMode ? 'Audit mode enabled. Count stock and export later.' : 'Audit mode disabled.';
+    }
+
+    startAuditMode() {
+        this.auditMode = true;
+        const panel = document.getElementById('stockAuditPanel');
+        if (panel) panel.classList.remove('hidden');
+        const summary = document.getElementById('stockAuditSummary');
+        if (summary) summary.textContent = 'Scanning and counting in progress...';
+    }
+
+    clearAuditCounts() {
+        this.setAuditLog([]);
+        const summary = document.getElementById('stockAuditSummary');
+        if (summary) summary.textContent = 'Audit log cleared.';
+    }
+
+    exportCurrentStockCsv() {
+        const items = this.getStoredStock();
+        const rows = [
+            ['Name', 'Barcode', 'Category', 'Supplier', 'Cost Price', 'Sell Price', 'Qty', 'Threshold'],
+            ...items.map(item => [item.name, item.barcode, item.category, item.supplier, item.costPrice, item.sellPrice, item.qty, item.lowStockThreshold])
+        ];
+        this.downloadCsv(rows, 'stock-report.csv');
+    }
+
+    exportAuditCsv() {
+        const records = this.getAuditLog();
+        const rows = [
+            ['Timestamp', 'Name', 'Barcode', 'Action', 'Qty', 'Remaining'],
+            ...records.map(entry => [entry.timestamp, entry.name, entry.barcode, entry.mode, entry.qty, entry.remaining])
+        ];
+        this.downloadCsv(rows, 'stock-audit.csv');
+    }
+
+    downloadCsv(rows, filename) {
+        const csv = rows.map(row => row.map(value => `"${String(value ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+    }
+
+    addBarcodeToCart() {
+        const input = document.getElementById('stockScanBarcodeInput');
+        const value = input?.value || '';
+        this.processBarcode(value, 'cart');
+    }
+
+    openSaleWorkspace() {
+        const modal = document.getElementById('saleWorkspaceModal');
+        if (!modal) return;
+        modal.style.display = 'flex';
+        this.renderSaleWorkspace();
+        document.getElementById('saleBarcodeInput')?.focus();
+    }
+
+    closeSaleWorkspace() {
+        const modal = document.getElementById('saleWorkspaceModal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    renderSaleWorkspace() {
+        const list = document.getElementById('saleWorkspaceItems');
+        const total = document.getElementById('saleWorkspaceTotal');
+        if (!list || !total || typeof cartManager === 'undefined') return;
+        const items = cartManager.cart.filter(item => item.name !== 'Sample Product');
+        list.innerHTML = items.length
+            ? items.map(item => `<div class="sale-line"><span>${this.escapeHtml(item.name)} x${Number(item.qty || 0)}</span><strong>R ${(Number(item.price || 0) * Number(item.qty || 0)).toFixed(2)}</strong></div>`).join('')
+            : '<p class="paragraph-small">Scan an item to start this sale.</p>';
+        const totals = cartManager.calculateTotals();
+        total.textContent = `R ${totals.total.toFixed(2)}`;
+    }
+
+    syncSaleCustomer() {
+        const value = document.getElementById('saleCustomerInput')?.value.trim() || '';
+        const client = document.getElementById('client');
+        if (client) client.value = value;
+        cartManager.updateUI();
+    }
+
+    syncSalePayment() {
+        const paid = document.getElementById('saleCashInput')?.value || '';
+        const online = document.getElementById('saleOnlineInput')?.value || '';
+        const paidField = document.getElementById('paid');
+        const onlineField = document.getElementById('online');
+        if (paidField) paidField.value = paid;
+        if (onlineField) onlineField.value = online;
+        cartManager.updateUI();
+        this.renderSaleWorkspace();
+    }
+
+    fillManualSalePrice() {
+        const name = document.getElementById('saleManualItemName')?.value.trim() || '';
+        const priceInput = document.getElementById('saleManualItemPrice');
+        if (!name || !priceInput) return;
+        const managedPrice = inventoryPriceManager.lookupPrice(name);
+        if (managedPrice) priceInput.value = Number(managedPrice.price).toFixed(2);
+    }
+
+    addManualSaleItem() {
+        const nameInput = document.getElementById('saleManualItemName');
+        const priceInput = document.getElementById('saleManualItemPrice');
+        const quantityInput = document.getElementById('saleManualItemQty');
+        const status = document.getElementById('saleManualItemStatus');
+        const name = nameInput?.value.trim() || '';
+        const price = Number(priceInput?.value || 0);
+        const quantity = Math.max(1, Math.floor(Number(quantityInput?.value || 1)));
+
+        if (!name) {
+            if (status) status.innerHTML = '<span class="status-error">Enter an item name.</span>';
+            return;
+        }
+        if (!Number.isFinite(price) || price <= 0) {
+            if (status) status.innerHTML = '<span class="status-error">Enter a valid item price.</span>';
+            return;
+        }
+
+        cartManager.cart = cartManager.cart.filter(item => item.name !== 'Sample Product');
+        const existing = cartManager.cart.find(item => item.name.toLowerCase() === name.toLowerCase());
+        if (existing) {
+            existing.qty = Number(existing.qty || 0) + quantity;
+            existing.price = price;
+        } else {
+            cartManager.cart.push({ id: Date.now(), name, price, qty: quantity, barcode: '' });
+        }
+        inventoryPriceManager.registerOrderingItem(name, price);
+        cartManager.render();
+        this.renderSaleWorkspace();
+        if (status) status.innerHTML = `<span class="status-success">${name} added to this sale.</span>`;
+        if (nameInput) nameInput.value = '';
+        if (priceInput) priceInput.value = '';
+        if (quantityInput) quantityInput.value = '1';
+        nameInput?.focus();
+    }
+
+    saveSaleFromWorkspace() {
+        this.syncSaleCustomer();
+        this.syncSalePayment();
+        cartManager.saveReceipt().then(() => this.renderSaleWorkspace());
+    }
+
+    lookupBarcodeFromInput() {
+        const input = document.getElementById('stockScannerManualInput');
+        const value = input?.value || '';
+        const mode = ['stock', 'stockCase', 'cart', 'sale'].includes(this.currentScanMode) ? this.currentScanMode : 'lookup';
+        this.processBarcode(value, mode);
+    }
+
+    processBarcode(barcode, mode = 'cart') {
+        const value = String(barcode || '').trim();
+        const statusId = mode === 'cart' ? 'stockScanStatus' : mode === 'sale' ? 'saleScanStatus' : 'stockScannerStatus';
+        const status = document.getElementById(statusId);
+        if (!value) {
+            if (status) status.innerHTML = '<span class="status-error">No barcode entered.</span>';
+            return;
+        }
+
+        if (mode === 'stock' || mode === 'stockCase') {
+            if (mode === 'stock') {
+                this.addStockItemBarcode(value);
+                return;
+            }
+            const barcodeInput = document.getElementById(mode === 'stockCase' ? 'stockCaseBarcodeInput' : 'stockBarcodeInput');
+            if (barcodeInput) barcodeInput.value = value;
+            const scannerStatus = document.getElementById('stockScannerStatus');
+            if (scannerStatus) scannerStatus.innerHTML = '<span class="status-success">Pack barcode captured. Complete and save the item.</span>';
+            this.closeScannerModal();
+            return;
+        }
+        const item = this.findItemByBarcodeOrName(value);
+        if (!item) {
+            if (status) status.innerHTML = '<span class="status-error">Item not found in stock list.</span>';
+            return;
+        }
+
+        if (mode === 'cart' || mode === 'sale') {
+            const isBoxBarcode = String(item.caseBarcode || '').trim().toLowerCase() === value.toLowerCase();
+            const quantity = isBoxBarcode ? Math.max(1, Math.round(Number(item.unitsPerBox) || 1)) : 1;
+            const existing = cartManager.cart.find(cartItem => cartItem.name.toLowerCase() === item.name.toLowerCase());
+            if (existing) { existing.qty += quantity; }
+            else { cartManager.cart.push({ id: Date.now(), name: item.name, price: Number(item.sellPrice || 0), qty: quantity }); }
+            cartManager.render();
+            this.renderSaleWorkspace();
+            if (status) status.innerHTML = `<span class="status-success">Added ${quantity} x ${item.name} to cart.</span>`;
+            const inputBox = document.getElementById(mode === 'sale' ? 'saleBarcodeInput' : 'stockScanBarcodeInput');
+            if (inputBox) inputBox.value = '';
+            return;
+        }
+
+        if (status) status.innerHTML = `<span class="status-success">${item.name} is in stock (${item.qty} items available).</span>`;
+        const inputBox = document.getElementById('stockScannerManualInput');
+        if (inputBox) inputBox.value = '';
+    }
+
+    openScannerModal(mode = 'cart') {
+        const modal = document.getElementById('stockScannerModal');
+        if (!modal) return;
+        this.currentScanMode = mode;
+        modal.style.display = 'flex';
+        if (!('BarcodeDetector' in window)) {
+            const fallback = document.getElementById('stockScannerFallback');
+            if (fallback) fallback.classList.remove('hidden');
+            const video = document.getElementById('stockScannerVideo');
+            if (video) video.srcObject = null;
+            return;
+        }
+        const fallback = document.getElementById('stockScannerFallback');
+        if (fallback) fallback.classList.add('hidden');
+        const video = document.getElementById('stockScannerVideo');
+        if (!video) return;
+
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(stream => {
+            video.srcObject = stream;
+            const barcodeDetector = new BarcodeDetector({ formats: ['code_128', 'ean_13', 'qr_code', 'upc_a', 'code_39'] });
+            let lastDetectedCode = '';
+            let absentSince = 0;
+            const scanLoop = async () => {
+                try {
+                    const barcodes = await barcodeDetector.detect(video);
+                    if (barcodes && barcodes.length) {
+                        const code = barcodes[0].rawValue;
+                        const normalizedCode = String(code || '').trim().toLowerCase();
+                        if (normalizedCode !== lastDetectedCode) {
+                            this.processBarcode(code, mode);
+                        }
+                        if (mode !== 'stock') {
+                            this.closeScannerModal();
+                            return;
+                        }
+                        lastDetectedCode = normalizedCode;
+                        absentSince = 0;
+                    } else if (mode === 'stock' && lastDetectedCode) {
+                        if (!absentSince) absentSince = Date.now();
+                        else if (Date.now() - absentSince >= 1500) {
+                            lastDetectedCode = '';
+                            absentSince = 0;
+                        }
+                    }
+                } catch (error) {
+                    console.warn('Barcode scan failed:', error);
+                }
+                if (modal.style.display !== 'none') {
+                    requestAnimationFrame(scanLoop);
+                }
+            };
+            scanLoop();
+        }).catch(error => {
+            console.warn('Camera access unavailable for stock scanner:', error);
+            if (fallback) fallback.classList.remove('hidden');
+        });
+    }
+
+    closeScannerModal() {
+        const modal = document.getElementById('stockScannerModal');
+        if (modal) modal.style.display = 'none';
+        const video = document.getElementById('stockScannerVideo');
+        if (video && video.srcObject) {
+            const stream = video.srcObject;
+            stream.getTracks().forEach(track => track.stop());
+            video.srcObject = null;
+        }
+    }
+
+    decrementFromSale(items) {
+        const stockItems = this.getStoredStock();
+        items.forEach(saleItem => {
+            const stockMatch = stockItems.find(stockItem => String(stockItem.name).toLowerCase() === String(saleItem.name).toLowerCase() || String(stockItem.barcode).toLowerCase() === String(saleItem.barcode || '').toLowerCase());
+            if (!stockMatch) return;
+            const requestedQty = Number(saleItem.qty || 0);
+            const remaining = Math.max(0, Number(stockMatch.qty || 0) - requestedQty);
+            stockMatch.qty = remaining;
+            stockMatch.updatedAt = new Date().toISOString();
+            const auditLog = this.getAuditLog();
+            auditLog.push({
+                id: Date.now() + Math.random(),
+                itemId: stockMatch.id,
+                name: stockMatch.name,
+                barcode: stockMatch.barcode,
+                mode: 'sale',
+                qty: requestedQty,
+                remaining,
+                timestamp: new Date().toISOString()
+            });
+            this.setAuditLog(auditLog);
+        });
+        this.setStoredStock(stockItems);
+        this.renderStockTable();
+        this.renderLowStockAlert();
     }
 }
 
@@ -664,60 +1523,6 @@ class CartManager {
             firstPriceInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
             firstPriceInput.focus();
         }
-    }
-    getBoxBarcodes() {
-        try {
-            const mappings = JSON.parse(localStorage.getItem('p3_box_barcodes') || '[]');
-            return Array.isArray(mappings) ? mappings : [];
-        } catch (error) {
-            return [];
-        }
-    }
-    saveBoxBarcode() {
-        const barcode = document.getElementById('boxBarcodeSetupInput')?.value.trim() || '';
-        const name = document.getElementById('boxItemNameInput')?.value.trim() || '';
-        const unitsPerBox = Number(document.getElementById('boxUnitsPerInput')?.value || 0);
-        const status = document.getElementById('boxBarcodeScanStatus');
-        if (!barcode || !name || !Number.isInteger(unitsPerBox) || unitsPerBox < 1) {
-            if (status) status.innerHTML = '<span class="status-error">Enter a box barcode, item name, and whole units-per-box quantity.</span>';
-            return;
-        }
-
-        const mappings = this.getBoxBarcodes();
-        const existing = mappings.find(mapping => String(mapping.barcode || '').trim().toLowerCase() === barcode.toLowerCase());
-        if (existing) Object.assign(existing, { barcode, name, unitsPerBox });
-        else mappings.push({ barcode, name, unitsPerBox });
-        localStorage.setItem('p3_box_barcodes', JSON.stringify(mappings));
-        if (status) status.innerHTML = `<span class="status-success">Saved ${this.escapeHtml(barcode)} for ${this.escapeHtml(unitsPerBox)} x ${this.escapeHtml(name)}.</span>`;
-        document.getElementById('boxBarcodeSetupInput').value = '';
-        document.getElementById('boxItemNameInput').value = '';
-        document.getElementById('boxUnitsPerInput').value = '1';
-    }
-    addScannedBox() {
-        const input = document.getElementById('boxBarcodeScanInput');
-        const barcode = input?.value.trim() || '';
-        const status = document.getElementById('boxBarcodeScanStatus');
-        if (!barcode) {
-            if (status) status.innerHTML = '<span class="status-error">Scan or enter a box barcode.</span>';
-            return;
-        }
-
-        const mapping = this.getBoxBarcodes().find(item => String(item.barcode || '').trim().toLowerCase() === barcode.toLowerCase());
-        if (!mapping) {
-            if (status) status.innerHTML = '<span class="status-error">Box barcode not found. Save it with its item and box quantity first.</span>';
-            return;
-        }
-
-        const quantity = Math.max(1, Math.round(Number(mapping.unitsPerBox) || 1));
-        const price = inventoryPriceManager.lookupPrice(mapping.name)?.price || 0;
-        this.cart = this.cart.filter(item => item.name !== 'Sample Product');
-        const existing = this.cart.find(item => String(item.name || '').toLowerCase() === mapping.name.toLowerCase());
-        if (existing) existing.qty = Number(existing.qty || 0) + quantity;
-        else this.cart.push({ id: Math.floor(Date.now() + Math.random() * 1000), name: mapping.name, price, qty: quantity });
-        this.render();
-        if (status) status.innerHTML = `<span class="status-success">Added ${this.escapeHtml(quantity)} x ${this.escapeHtml(mapping.name)} to cart.</span>`;
-        input.value = '';
-        input.focus();
     }
     escapeHtml(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;'); }
 
@@ -865,6 +1670,18 @@ class CartManager {
         paid: (parseFloat(document.getElementById('paid').value) || 0) + (parseFloat(document.getElementById('online').value) || 0),
         items: [...this.cart]
     });
+
+    if (typeof stockManager?.decrementFromSale === 'function') {
+        try {
+            stockManager.decrementFromSale(this.cart.map(item => ({
+                name: item.name,
+                qty: Number(item.qty || 0),
+                barcode: item.barcode || ''
+            })));
+        } catch (error) {
+            console.warn('Stock decrement after receipt failed:', error);
+        }
+    }
 
     if (typeof buildStatementRows === 'function') buildStatementRows(); 
     if (typeof renderSavedReceipts === 'function') renderSavedReceipts(); 
@@ -1014,228 +1831,9 @@ const storeManager = new StoreManager();
 const customerManager = new CustomerManager();
 const inventoryPriceManager = new InventoryPriceManager();
 const cartManager = new CartManager();
+const stockManager = new StockManager();
 const supportManager = new SupportManager();
-Object.assign(window, { authManager, storeManager, customerManager, inventoryPriceManager, cartManager, supportManager });
-
-let storeItemCameraStream = null;
-let storeItemCameraLastBarcode = '';
-let storeItemCameraAbsentSince = 0;
-let storeItemScannedBarcodes = [];
-
-window.openStoreItemModal = function() {
-    const modal = document.getElementById('storeItemModal');
-    const status = document.getElementById('storeItemStatus');
-    if (!modal) return;
-    if (status) {
-        status.textContent = '';
-        status.className = 'status-message';
-    }
-    modal.style.display = 'flex';
-    document.getElementById('storeItemBarcode')?.focus();
-};
-
-window.closeStoreItemModal = function() {
-    window.stopStoreItemCamera();
-    const modal = document.getElementById('storeItemModal');
-    if (modal) modal.style.display = 'none';
-};
-
-window.addStoreItemScan = function(barcode) {
-    const value = String(barcode || '').trim();
-    const barcodeInput = document.getElementById('storeItemBarcode');
-    const quantityInput = document.getElementById('storeItemQty');
-    const scanLog = document.getElementById('storeItemScannedBarcodes');
-    const status = document.getElementById('storeItemStatus');
-    if (!value || !barcodeInput || !quantityInput) return;
-
-    const currentBarcode = barcodeInput.value.trim();
-    if (currentBarcode && currentBarcode.toLowerCase() !== value.toLowerCase()) {
-        if (status) {
-            status.textContent = 'This form is already counting a different product barcode. Start a separate stock item for another product.';
-            status.className = 'status-message status-error';
-        }
-        return;
-    }
-
-    if (!currentBarcode) barcodeInput.value = value;
-    storeItemScannedBarcodes.push(value);
-    quantityInput.value = Math.max(0, Math.floor(Number(quantityInput.value) || 0)) + 1;
-    if (scanLog) scanLog.value = storeItemScannedBarcodes.join('\n');
-    if (status) {
-        const count = storeItemScannedBarcodes.length;
-        status.textContent = `Counted ${count} unit${count === 1 ? '' : 's'} for ${value}.`;
-        status.className = 'status-message status-success';
-    }
-};
-
-window.clearStoreItemScans = function() {
-    const quantityInput = document.getElementById('storeItemQty');
-    const scanLog = document.getElementById('storeItemScannedBarcodes');
-    const status = document.getElementById('storeItemStatus');
-    if (quantityInput) quantityInput.value = Math.max(0, (Number(quantityInput.value) || 0) - storeItemScannedBarcodes.length);
-    storeItemScannedBarcodes = [];
-    if (scanLog) scanLog.value = '';
-    if (status) {
-        status.textContent = 'Scanned units cleared.';
-        status.className = 'status-message';
-    }
-};
-
-window.startStoreItemCamera = async function() {
-    const status = document.getElementById('storeItemStatus');
-    const panel = document.getElementById('storeItemCameraPanel');
-    const video = document.getElementById('storeItemCameraVideo');
-    if (!('BarcodeDetector' in window) || !navigator.mediaDevices?.getUserMedia) {
-        if (status) {
-            status.textContent = 'Camera scanning is not supported in this browser. Use a handheld barcode scanner or type the barcode.';
-            status.className = 'status-message status-error';
-        }
-        return;
-    }
-
-    try {
-        storeItemCameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        storeItemCameraLastBarcode = '';
-        storeItemCameraAbsentSince = 0;
-        video.srcObject = storeItemCameraStream;
-        panel.classList.remove('hidden');
-        const detector = new BarcodeDetector({ formats: ['code_128', 'ean_13', 'qr_code', 'upc_a', 'code_39'] });
-        const scan = async () => {
-            if (!storeItemCameraStream) return;
-            try {
-                const matches = await detector.detect(video);
-                if (matches.length) {
-                    const code = String(matches[0].rawValue || '').trim();
-                    const normalizedCode = code.toLowerCase();
-                    if (normalizedCode !== storeItemCameraLastBarcode) {
-                        window.addStoreItemScan(code);
-                    }
-                    storeItemCameraLastBarcode = normalizedCode;
-                    storeItemCameraAbsentSince = 0;
-                } else if (storeItemCameraLastBarcode) {
-                    if (!storeItemCameraAbsentSince) storeItemCameraAbsentSince = Date.now();
-                    else if (Date.now() - storeItemCameraAbsentSince >= 1500) {
-                        storeItemCameraLastBarcode = '';
-                        storeItemCameraAbsentSince = 0;
-                    }
-                }
-            } catch (error) {
-                console.warn('Store item barcode scan failed:', error);
-            }
-            if (storeItemCameraStream) requestAnimationFrame(scan);
-        };
-        scan();
-    } catch (error) {
-        if (status) {
-            status.textContent = 'Camera access was blocked. Use a handheld barcode scanner or type the barcode.';
-            status.className = 'status-message status-error';
-        }
-    }
-};
-
-window.stopStoreItemCamera = function() {
-    if (storeItemCameraStream) storeItemCameraStream.getTracks().forEach(track => track.stop());
-    storeItemCameraStream = null;
-    storeItemCameraLastBarcode = '';
-    storeItemCameraAbsentSince = 0;
-    const video = document.getElementById('storeItemCameraVideo');
-    if (video) video.srcObject = null;
-    document.getElementById('storeItemCameraPanel')?.classList.add('hidden');
-};
-
-window.saveStoreItem = function(event) {
-    event.preventDefault();
-    const status = document.getElementById('storeItemStatus');
-    const values = {
-        barcode: document.getElementById('storeItemBarcode').value.trim(),
-        name: document.getElementById('storeItemName').value.trim(),
-        category: document.getElementById('storeItemCategory').value.trim() || 'General',
-        supplier: document.getElementById('storeItemSupplier').value.trim() || 'Unknown',
-        costPrice: Number(document.getElementById('storeItemCost').value || 0),
-        sellPrice: Number(document.getElementById('storeItemSell').value),
-        qty: Number(document.getElementById('storeItemQty').value),
-        threshold: Number(document.getElementById('storeItemThreshold').value || 0),
-        caseBarcode: document.getElementById('storeItemCaseBarcode').value.trim(),
-        unitsPerBox: Number(document.getElementById('storeItemCaseQty').value)
-    };
-    const showError = message => {
-        status.textContent = message;
-        status.className = 'status-message status-error';
-    };
-
-    if (!values.name) return showError('Product name is required.');
-    if (![values.costPrice, values.sellPrice].every(Number.isFinite) || values.costPrice < 0 || values.sellPrice < 0) return showError('Enter valid non-negative prices.');
-    if (![values.qty, values.threshold, values.unitsPerBox].every(Number.isInteger) || values.qty < 0 || values.threshold < 0 || values.unitsPerBox < 1) return showError('Stock, alert, and box quantities must be whole numbers.');
-    if (values.barcode && values.caseBarcode && values.barcode.toLowerCase() === values.caseBarcode.toLowerCase()) return showError('Product and box barcodes must be different.');
-
-    let items;
-    try {
-        items = JSON.parse(localStorage.getItem('p3_stock_items') || '[]');
-        if (!Array.isArray(items)) items = [];
-    } catch (error) {
-        items = [];
-    }
-    const existingIndex = items.findIndex(item => (values.barcode && String(item.barcode || '').trim().toLowerCase() === values.barcode.toLowerCase()) || String(item.name || '').trim().toLowerCase() === values.name.toLowerCase());
-    const duplicateBarcode = items.some((item, index) => index !== existingIndex && [item.barcode, item.caseBarcode].some(code => values.barcode && String(code || '').trim().toLowerCase() === values.barcode.toLowerCase()));
-    const duplicateCaseBarcode = items.some((item, index) => index !== existingIndex && [item.barcode, item.caseBarcode].some(code => values.caseBarcode && String(code || '').trim().toLowerCase() === values.caseBarcode.toLowerCase()));
-    if (duplicateBarcode) return showError('This product barcode is already assigned to another item.');
-    if (duplicateCaseBarcode) return showError('This box barcode is already assigned to another item.');
-
-    const existing = existingIndex >= 0 ? items[existingIndex] : null;
-    const item = {
-        ...(existing || {}),
-        id: existing?.id ?? Date.now(),
-        barcode: values.barcode || existing?.barcode || '',
-        caseBarcode: values.caseBarcode || existing?.caseBarcode || '',
-        unitsPerBox: values.caseBarcode ? values.unitsPerBox : Math.max(1, Math.round(Number(existing?.unitsPerBox) || 1)),
-        name: values.name,
-        category: values.category,
-        supplier: values.supplier,
-        costPrice: values.costPrice,
-        sellPrice: values.sellPrice,
-        qty: Math.max(0, Number(existing?.qty || 0)) + values.qty,
-        lowStockThreshold: values.threshold,
-        updatedAt: new Date().toISOString()
-    };
-    if (existingIndex >= 0) items[existingIndex] = item;
-    else items.push(item);
-    localStorage.setItem('p3_stock_items', JSON.stringify(items));
-
-    let prices;
-    try {
-        prices = JSON.parse(localStorage.getItem('p3_auto_prices') || '{}');
-        if (!prices || Array.isArray(prices) || typeof prices !== 'object') prices = {};
-    } catch (error) {
-        prices = {};
-    }
-    prices[item.name.toLowerCase()] = { originalName: item.name, price: item.sellPrice, costPrice: item.costPrice };
-    localStorage.setItem('p3_auto_prices', JSON.stringify(prices));
-
-    let boxBarcodes;
-    try {
-        boxBarcodes = JSON.parse(localStorage.getItem('p3_box_barcodes') || '[]');
-        if (!Array.isArray(boxBarcodes)) boxBarcodes = [];
-    } catch (error) {
-        boxBarcodes = [];
-    }
-    if (item.caseBarcode) {
-        const mappingIndex = boxBarcodes.findIndex(mapping => String(mapping.barcode || '').trim().toLowerCase() === item.caseBarcode.toLowerCase());
-        const mapping = { barcode: item.caseBarcode, name: item.name, unitsPerBox: item.unitsPerBox };
-        if (mappingIndex >= 0) boxBarcodes[mappingIndex] = mapping;
-        else boxBarcodes.push(mapping);
-    }
-    localStorage.setItem('p3_box_barcodes', JSON.stringify(boxBarcodes));
-
-    document.getElementById('storeItemForm').reset();
-    document.getElementById('storeItemQty').value = '0';
-    document.getElementById('storeItemThreshold').value = '0';
-    document.getElementById('storeItemCaseQty').value = '1';
-    storeItemScannedBarcodes = [];
-    document.getElementById('storeItemScannedBarcodes').value = '';
-    status.textContent = existing ? `Added ${values.qty} units to ${item.name}. Stock is now ${item.qty}.` : `${item.name} added to store stock.`;
-    status.className = 'status-message status-success';
-    document.getElementById('storeItemBarcode').focus();
-};
+Object.assign(window, { authManager, storeManager, customerManager, inventoryPriceManager, cartManager, stockManager, supportManager });
 
 function setupNavigationControls() {
     const shiftButton = document.getElementById('btn-shift');
@@ -1323,10 +1921,14 @@ function setupNavigationControls() {
 window.onload = function () {
     authManager.loadUserData();
     storeManager.initStoreManager();
+    stockManager.ensureDefaultStock();
     loadDrafts();
     customerManager.renderCustomerSuggestions();
     cartManager.loadSavedCart();
     cartManager.render();
+    inventoryPriceManager.renderProductSuggestions();
+    inventoryPriceManager.renderStockFormSuggestions();
+    stockManager.renderStockTable();
     setupNavigationControls();
     setupDeviceBackNavigation();
 
@@ -1339,7 +1941,19 @@ window.onload = function () {
     });
 
     document.querySelectorAll('input[type=text], input[type=number]').forEach(el => el.oninput = () => cartManager.updateUI());
+    document.getElementById('stockNameInput')?.addEventListener('input', () => stockManager.fillSuggestedStockPrices());
     document.getElementById('emailForm').addEventListener('submit', (e) => supportManager.handleEmailSubmit(e));
+    ['stockScanBarcodeInput', 'saleBarcodeInput', 'stockScannerManualInput'].forEach(id => {
+        const input = document.getElementById(id);
+        if (!input) return;
+        input.addEventListener('keydown', event => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            if (id === 'stockScanBarcodeInput') stockManager.addBarcodeToCart();
+            if (id === 'saleBarcodeInput') stockManager.processBarcode(input.value, 'sale');
+            if (id === 'stockScannerManualInput') stockManager.lookupBarcodeFromInput();
+        });
+    });
 };
 
 function setupDeviceBackNavigation() {
@@ -1437,6 +2051,17 @@ document.addEventListener('click', function (e) {
     const nameMenu = document.getElementById('profileNameMenuPanel');
     const nameMenuButton = document.querySelector('.profile-menu-button');
     if (nameMenu && !nameMenu.contains(e.target) && !nameMenuButton?.contains(e.target)) nameMenu.classList.add('hidden');
+
+    if (!e.target.classList.contains('modal')) return;
+    const modalId = e.target.id;
+    if (modalId === 'viewsModal') return closeViewsModal();
+    if (modalId === 'stockScannerModal') return stockManager.closeScannerModal();
+    if (modalId === 'saleWorkspaceModal') return stockManager.closeSaleWorkspace();
+    if (modalId === 'shareOptionsModal') return closeShareOptions();
+    if (modalId === 'authModal') return authManager.closeAuthModal();
+    if (modalId === 'receiptEmailModal') return closeReceiptEmail();
+    e.target.style.display = 'none';
+    e.target.classList.add('hidden');
 });
 
 function loadDrafts() {
@@ -1678,9 +2303,24 @@ function openView(type) {
         const saved = authManager.getStoredProfile();
         const profileView = document.getElementById('profileView');
         if (profileView) {
-            profileView.innerHTML = saved && saved.name && saved.email
-                ? `<div class="profile-profile-line"><p><b>Name:</b> ${saved.name}</p><p><b>Email:</b> ${saved.email}</p><p><b>Provider:</b> ${saved.provider || 'manual'}</p></div>`
-                : '<p class="paragraph-small">No profile saved yet.</p>';
+            profileView.replaceChildren();
+            if (saved && saved.name && saved.email) {
+                const details = document.createElement('div');
+                details.className = 'profile-profile-line';
+                [['Name', saved.name], ['Email', saved.email], ['Provider', saved.provider || 'manual']].forEach(([label, value]) => {
+                    const row = document.createElement('p');
+                    const heading = document.createElement('b');
+                    heading.textContent = `${label}: `;
+                    row.append(heading, document.createTextNode(String(value)));
+                    details.appendChild(row);
+                });
+                profileView.appendChild(details);
+            } else {
+                const empty = document.createElement('p');
+                empty.className = 'paragraph-small';
+                empty.textContent = 'No profile saved yet.';
+                profileView.appendChild(empty);
+            }
         }
     }
     if (type === 'statements') buildStatementRows();
@@ -1690,6 +2330,7 @@ function openView(type) {
     if (type === 'customers') customerManager.renderCustomersList();
     if (type === 'priceMgmt') inventoryPriceManager.renderPriceManagementTable();
     if (type === 'ordering') renderOrderingItems();
+    if (type === 'stock') stockManager.renderStockTable();
     modal.style.display = 'flex';
 }
 
@@ -1735,6 +2376,23 @@ window.finishOrdering = function() {
 // ─── AUTO-RESUME DETECTOR FOR RETURNING CUSTOMERS ───────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
+    const routeParams = new URLSearchParams(window.location.search);
+    const requestedView = routeParams.get('mainView');
+    const supportedViews = new Set(['savedReceipts', 'ordering', 'downloads', 'statements', 'customers']);
+    let handledCreditRoute = false;
+    if (supportedViews.has(requestedView)) {
+        openView(requestedView);
+        handledCreditRoute = true;
+    } else if (routeParams.get('addStock') === '1') {
+        if (typeof window.openStoreItemModal === 'function') window.openStoreItemModal();
+        else if (typeof stockManager !== 'undefined') {
+            openView('stock');
+            stockManager.openStockItemForm();
+        }
+        handledCreditRoute = true;
+    }
+    if (handledCreditRoute) window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+
     const orderingSearchInput = document.getElementById('orderingSearchInput');
     if (orderingSearchInput) orderingSearchInput.addEventListener('input', () => renderOrderingItems());
     const clientInput = document.getElementById('client');

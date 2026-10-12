@@ -1,0 +1,58 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: users/{uid}/appData
+// Document ID: one of the nine allowlisted business keys or its chunk ID
+// Fields:
+//   - value: string (required, <= 200,000 characters), JSON or app setting
+//
+// Document: users/{uid}/syncMeta/state
+// Fields:
+//   - initialized: bool (required), set when the first device seeds the account
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    function isValidBusinessKey(key) {
+      return key.matches('^(p3_active_cart|p3_auto_prices|p3_box_barcodes|p3_pos_drafts|p3_pos_snapshots|p3_saved_customers|p3_saved_stores|p3_stock_audit|p3_stock_items)(__chunk_[0-9])?$');
+    }
+
+    function validBusinessData(key) {
+      return isValidBusinessKey(key)
+        && request.resource.data.keys().hasOnly(['value'])
+        && request.resource.data.keys().hasAll(['value'])
+        && request.resource.data.value is string
+        && request.resource.data.value.size() <= 200000;
+    }
+
+    function validSyncState() {
+      return request.resource.data.keys().hasOnly(['initialized'])
+        && request.resource.data.keys().hasAll(['initialized'])
+        && request.resource.data.initialized is bool
+        && request.resource.data.initialized == true;
+    }
+
+    match /users/{uid}/appData/{key} {
+      allow read: if isOwner(uid);
+      allow create, update: if isOwner(uid) && validBusinessData(key);
+      allow delete: if isOwner(uid) && isValidBusinessKey(key);
+    }
+
+    match /users/{uid}/syncMeta/state {
+      allow read: if isOwner(uid);
+      allow create, update: if isOwner(uid) && validSyncState();
+      allow delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

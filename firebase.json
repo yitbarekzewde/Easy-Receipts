@@ -1,4 +1,11 @@
 {
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json",
+    "edition": "enterprise",
+    "database": "easy-receipts-main",
+    "location": "africa-south1"
+  },
   "hosting": {
     "public": "public",
     "ignore": [

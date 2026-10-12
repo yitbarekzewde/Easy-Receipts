@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Page Not Found - Easy Receipt</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .error-container {
+            min-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .error-card {
+            background: white;
+            padding: 40px 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+            max-width: 500px;
+            width: 100%;
+        }
+
+        .error-icon-wrapper {
+            position: relative;
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+
+        .error-code {
+            font-size: 90px;
+            font-weight: 800;
+            color: #e2e8f0;
+            line-height: 1;
+            margin: 0;
+            letter-spacing: -2px;
+        }
+
+        .receipt-lost-icon {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -40%);
+            font-size: 45px;
+            color: var(--primary);
+            animation: floatReceipt 3s ease-in-out infinite;
+        }
+
+        @keyframes floatReceipt {
+            0%, 100% { transform: translate(-50%, -40%) translateY(0px) rotate(0deg); }
+            50% { transform: translate(-50%, -40%) translateY(-10px) rotate(5deg); }
+        }
+
+        .error-title {
+            font-size: 24px;
+            color: var(--dark);
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .error-message {
+            color: #64748b;
+            font-size: 15px;
+            line-height: 1.6;
+            margin-bottom: 30px;
+        }
+
+        .error-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            width: 100%;
+        }
+
+        .btn-error-primary {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: transform 0.2s, filter 0.2s;
+        }
+
+        .btn-error-primary:hover {
+            filter: brightness(1.05);
+            transform: translateY(-1px);
+        }
+
+        .btn-error-secondary {
+            background: #f8fafc;
+            color: #475569;
+            border: 1px solid #e2e8f0;
+            padding: 12px 24px;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: background 0.2s;
+        }
+
+        .btn-error-secondary:hover {
+            background: #f1f5f9;
+        }
+
+        .error-footer {
+            margin-top: 40px;
+            color: #94a3b8;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="error-container">
+        <div class="error-card">
+            <div class="error-icon-wrapper">
+                <h1 class="error-code">404</h1>
+                <i class="fas fa-file-invoice receipt-lost-icon"></i>
+            </div>
+
+            <h2 class="error-title">This Receipt Log is Missing!</h2>
+            <p class="error-message">
+                The layout structure or dynamic URL link layer you are looking for has been voided, cleared from cache, or moved to a different active registry workspace directory index.
+            </p>
+
+            <div class="error-actions">
+                <a href="index.html" class="btn-error-primary">
+                    <i class="fas fa-calculator"></i> Go back to Terminal Counter
+                </a>
+                <button onclick="window.history.back()" class="btn-error-secondary">
+                    <i class="fas fa-arrow-left"></i> Return to Previous Screen
+                </button>
+            </div>
+        </div>
+
+        <p class="error-footer">© 2026 Easy Receipt. Automated Local Register System.</p>
+    </div>
+
+</body>
+</html>

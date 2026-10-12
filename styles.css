@@ -281,7 +281,8 @@ button { padding: 14px; border-radius: 10px; border: none; font-weight: bold; cu
 .status-message { margin-top: 10px; text-align: center; }
 .status-success { color: green; }
 .status-error { color: #ef4444; }
-.stock-fast-scan { margin-top: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px; }
+.stock-fast-scan { margin-top: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px 12px; }
+.stock-quick-scan-btn { width: auto; display: inline-flex; align-items: center; gap: 8px; padding: 9px 16px; margin: 0; font-size: 13px; }
 .stock-toolbar { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .stock-toolbar-main, .stock-toolbar-actions, .stock-audit-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .stock-toolbar-main input { flex: 1; min-width: 160px; }
@@ -645,6 +646,52 @@ body {
 }
 .ordering-done-button {
     margin-top: 14px;
+}
+.account-modal-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-right: 24px; }
+.account-eyebrow { color: #64748b; font-size: 10px; font-weight: 800; letter-spacing: .14em; margin-bottom: 5px; }
+.account-modal-heading .modal-heading { margin-bottom: 8px; }
+.account-local-badge { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border: 1px solid #bbf7d0; border-radius: 999px; background: #f0fdf4; color: #166534; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.account-info-row { align-items: center; }
+.account-display-name { color: var(--dark) !important; font-size: 19px !important; font-weight: 750; margin-bottom: 5px !important; }
+.account-tabs { display: flex; gap: 8px; margin: 18px 0 16px; padding: 4px; border: 1px solid #e2e8f0; border-radius: 12px; background: #f8fafc; }
+.account-tab { display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex: 1; min-height: 42px; margin: 0; padding: 9px 12px; border: 0; border-radius: 9px; background: transparent; color: #64748b; font-size: 13px; transition: background .18s ease, color .18s ease, box-shadow .18s ease; }
+.account-tab.active { background: white; color: var(--primary); box-shadow: 0 2px 8px rgba(15,23,42,.1); }
+.account-panel { padding: 2px 1px; }
+.account-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 14px; }
+.account-form-grid > div { min-width: 0; }
+.account-form-grid .small-label { display: block; margin: 3px 0 5px; color: #475569; font-size: 12px; font-weight: 700; }
+.account-form-grid input, .account-form-grid select { margin-bottom: 7px; }
+.account-form-grid input[readonly] { color: #64748b; background: #f1f5f9; cursor: not-allowed; }
+.account-field-hint { display: block; margin: -3px 0 9px; color: #64748b; font-size: 10px; line-height: 1.4; }
+.account-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 9px; }
+.account-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: auto; min-height: 42px; margin: 0; padding: 10px 15px; font-size: 12px; }
+.account-status { min-height: 18px; margin-top: 8px; color: #15803d; font-size: 12px; }
+.account-status-error { color: #dc2626; }
+.account-settings-intro { margin: 0 0 15px; padding: 14px 16px; border: 1px solid #dbeafe; border-radius: 12px; background: #eff6ff; }
+.account-settings-intro h4 { margin-bottom: 5px; color: var(--dark); font-size: 14px; }
+.account-settings-intro p { color: #475569; font-size: 12px; line-height: 1.5; }
+.account-signout { display: block; width: auto; margin: 16px 0 0 auto; padding: 9px 13px; font-size: 12px; }
+body.compact-mode .panel, body.compact-mode .view-panel { padding: 14px; }
+body.compact-mode input, body.compact-mode textarea, body.compact-mode select { padding: 9px 10px; }
+body[data-theme="dark"] { background: #0b1220; color: #e2e8f0; }
+body[data-theme="dark"] .panel, body[data-theme="dark"] .view-panel, body[data-theme="dark"] .modal-content { background: #111c2e; color: #e2e8f0; }
+body[data-theme="dark"] .modal-heading, body[data-theme="dark"] .section-subheading, body[data-theme="dark"] .account-display-name, body[data-theme="dark"] .account-settings-intro h4 { color: #f1f5f9 !important; }
+body[data-theme="dark"] .account-local-badge { border-color: #14532d; background: #052e16; color: #bbf7d0; }
+body[data-theme="dark"] .profile-info-row, body[data-theme="dark"] .account-tabs, body[data-theme="dark"] .account-settings-intro { border-color: #334155; background: #172337; }
+body[data-theme="dark"] .account-tab { color: #cbd5e1; }
+body[data-theme="dark"] .account-tab.active { background: #26364d; color: var(--primary); }
+body[data-theme="dark"] .account-settings-intro p, body[data-theme="dark"] .account-field-hint, body[data-theme="dark"] .profile-info-text p { color: #94a3b8; }
+body[data-theme="dark"] .account-form-grid .small-label { color: #cbd5e1; }
+body[data-theme="dark"] input, body[data-theme="dark"] textarea, body[data-theme="dark"] select { border-color: #475569; background: #0f172a; color: #e2e8f0; box-shadow: none; }
+body[data-theme="dark"] .account-form-grid input[readonly] { background: #1e293b; color: #94a3b8; }
+body[data-theme="dark"] .draft-item, body[data-theme="dark"] .stock-form-card, body[data-theme="dark"] .stock-audit-panel { border-color: #334155; background: #172337; color: #e2e8f0; }
+body[data-theme="dark"] .close-modal { color: #cbd5e1; }
+@media (max-width: 560px) {
+    .account-modal-heading { flex-direction: column; gap: 2px; }
+    .account-local-badge { font-size: 10px; }
+    .account-form-grid { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    .account-actions button { flex: 1 1 100%; }
+    .account-signout { width: 100%; }
 }
 .customer-history-card { padding: 12px; margin-bottom: 10px; border: 1px solid #e2e8f0; background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(15,23,42,.04); }
 .customer-summary-row { display: flex; align-items: center; gap: 12px; justify-content: space-between; }
