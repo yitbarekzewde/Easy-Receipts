@@ -1,4 +1,4 @@
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx2vAFTPPvCwnK7rI0OQuvuesMCvqQ9NSHX2tx94z-axY7eEvF7T4cU3WRwpgj021Ct/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwxD52Ibd3FcOREtqmCgPgoNcRmKzDlKQVBui9Ea0nRl75MEihx_Fwfvm8dpG_wn_tCtg/exec';
 const CUSTOMER_RECEIPT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxnzc70hmMw9G8fIPRX1eiypQfglG5Yw9in3XLVPGDx02GOzk6ibMnR2y7M7WfeaDdpUA/exec';
 const SUPPORT_ATTACHMENTS_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwojlEIYRaWg59eAwlR_3czYVDN1lrJCw8kcj13sJC4z1etfE3qj4mm-yXEMapOGWmorw/exec';
 let allowDeviceBackExit = false;
