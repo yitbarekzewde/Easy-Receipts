@@ -129,16 +129,17 @@ class AuthManager {
         }
     }
     showAccountTab(tab) {
-        const settingsSelected = tab === 'settings';
-        document.getElementById('account-profile-panel')?.classList.toggle('hidden', settingsSelected);
-        document.getElementById('account-settings-panel')?.classList.toggle('hidden', !settingsSelected);
-        const profileTab = document.getElementById('account-tab-profile');
-        const settingsTab = document.getElementById('account-tab-settings');
-        profileTab?.classList.toggle('active', !settingsSelected);
-        settingsTab?.classList.toggle('active', settingsSelected);
-        profileTab?.setAttribute('aria-selected', String(!settingsSelected));
-        settingsTab?.setAttribute('aria-selected', String(settingsSelected));
-        if (settingsSelected) this.renderSettings();
+        const panels = { profile: 'account-profile-panel', settings: 'account-settings-panel', team: 'account-team-panel' };
+        const selected = panels[tab] ? tab : 'profile';
+        Object.entries(panels).forEach(([name, panelId]) => {
+            const active = name === selected;
+            document.getElementById(panelId)?.classList.toggle('hidden', !active);
+            const tabButton = document.getElementById(`account-tab-${name}`);
+            tabButton?.classList.toggle('active', active);
+            tabButton?.setAttribute('aria-selected', String(active));
+        });
+        if (selected === 'settings') this.renderSettings();
+        if (selected === 'team') window.teamManager?.refresh();
     }
     saveProfileDetails(event) {
         event.preventDefault();
@@ -858,6 +859,9 @@ class StockManager {
         this.sortKey = 'name';
         this.sortDirection = 1;
         this.stockBatchScans = [];
+        this.cameraSessionId = 0;
+        this.cameraScanPaused = false;
+        this.pendingCameraScanCode = '';
     }
 
     getStoredStock() {
@@ -1334,7 +1338,7 @@ class StockManager {
         this.processBarcode(value, mode);
     }
 
-    processBarcode(barcode, mode = 'cart') {
+    processBarcode(barcode, mode = 'cart', requestedQuantity) {
         const value = String(barcode || '').trim();
         const statusId = mode === 'cart' ? 'stockScanStatus' : mode === 'sale' ? 'saleScanStatus' : 'stockScannerStatus';
         const status = document.getElementById(statusId);
@@ -1358,18 +1362,33 @@ class StockManager {
         const item = this.findItemByBarcodeOrName(value);
         if (!item) {
             if (status) status.innerHTML = '<span class="status-error">Item not found in stock list.</span>';
+            if (mode === 'cart' && document.getElementById('stockScannerModal')?.style.display === 'flex') {
+                const scannerStatus = document.getElementById('stockScannerStatus');
+                if (scannerStatus) scannerStatus.innerHTML = '<span class="status-error">Item not found in stock list.</span>';
+            }
             return;
         }
 
         if (mode === 'cart' || mode === 'sale') {
             const isBoxBarcode = String(item.caseBarcode || '').trim().toLowerCase() === value.toLowerCase();
-            const quantity = isBoxBarcode ? Math.max(1, Math.round(Number(item.unitsPerBox) || 1)) : 1;
+            const quantity = requestedQuantity === undefined
+                ? (isBoxBarcode ? Math.max(1, Math.round(Number(item.unitsPerBox) || 1)) : 1)
+                : Number(requestedQuantity);
+            if (!Number.isInteger(quantity) || quantity < 1) {
+                if (status) status.innerHTML = '<span class="status-error">Quantity must be a whole number greater than zero.</span>';
+                return;
+            }
             const existing = cartManager.cart.find(cartItem => cartItem.name.toLowerCase() === item.name.toLowerCase());
             if (existing) { existing.qty += quantity; }
             else { cartManager.cart.push({ id: Date.now(), name: item.name, price: Number(item.sellPrice || 0), qty: quantity }); }
             cartManager.render();
             this.renderSaleWorkspace();
-            if (status) status.innerHTML = `<span class="status-success">Added ${quantity} x ${item.name} to cart.</span>`;
+            const successMessage = `<span class="status-success">Added ${quantity} x ${this.escapeHtml(item.name)} to cart.</span>`;
+            if (status) status.innerHTML = successMessage;
+            if (mode === 'cart' && document.getElementById('stockScannerModal')?.style.display === 'flex') {
+                const scannerStatus = document.getElementById('stockScannerStatus');
+                if (scannerStatus) scannerStatus.innerHTML = successMessage;
+            }
             const inputBox = document.getElementById(mode === 'sale' ? 'saleBarcodeInput' : 'stockScanBarcodeInput');
             if (inputBox) inputBox.value = '';
             return;
@@ -1380,11 +1399,69 @@ class StockManager {
         if (inputBox) inputBox.value = '';
     }
 
+    promptCameraScanQuantity(barcode) {
+        const item = this.findItemByBarcodeOrName(barcode);
+        if (!item) {
+            this.processBarcode(barcode, 'cart');
+            return;
+        }
+        const quantityPanel = document.getElementById('stockScanQuantityPanel');
+        const itemLabel = document.getElementById('stockScanQuantityItem');
+        const quantityInput = document.getElementById('stockScanQuantityInput');
+        if (!quantityPanel || !itemLabel || !quantityInput) {
+            this.processBarcode(barcode, 'cart');
+            return;
+        }
+
+        this.pendingCameraScanCode = barcode;
+        this.cameraScanPaused = true;
+        const isBoxBarcode = String(item.caseBarcode || '').trim().toLowerCase() === String(barcode).trim().toLowerCase();
+        itemLabel.textContent = item.name;
+        quantityInput.value = String(isBoxBarcode ? Math.max(1, Math.round(Number(item.unitsPerBox) || 1)) : 1);
+        quantityPanel.classList.remove('hidden');
+        const status = document.getElementById('stockScannerStatus');
+        if (status) status.textContent = 'Enter the quantity, then add it or skip to scan the next item.';
+        quantityInput.focus();
+        quantityInput.select();
+    }
+
+    confirmCameraScanQuantity() {
+        const quantityInput = document.getElementById('stockScanQuantityInput');
+        const quantity = Number(quantityInput?.value);
+        if (!Number.isInteger(quantity) || quantity < 1) {
+            const status = document.getElementById('stockScannerStatus');
+            if (status) status.innerHTML = '<span class="status-error">Enter a whole quantity greater than zero.</span>';
+            quantityInput?.focus();
+            return;
+        }
+
+        const barcode = this.pendingCameraScanCode;
+        if (!barcode) return;
+        this.pendingCameraScanCode = '';
+        this.cameraScanPaused = false;
+        document.getElementById('stockScanQuantityPanel')?.classList.add('hidden');
+        this.processBarcode(barcode, 'cart', quantity);
+    }
+
+    cancelCameraScanQuantity() {
+        this.pendingCameraScanCode = '';
+        this.cameraScanPaused = false;
+        document.getElementById('stockScanQuantityPanel')?.classList.add('hidden');
+        const status = document.getElementById('stockScannerStatus');
+        if (status) status.textContent = 'Skipped. Scan the next item.';
+    }
+
     openScannerModal(mode = 'cart') {
         const modal = document.getElementById('stockScannerModal');
         if (!modal) return;
+        this.closeScannerModal();
         this.currentScanMode = mode;
         modal.style.display = 'flex';
+        const sessionId = ++this.cameraSessionId;
+        const quantityPanel = document.getElementById('stockScanQuantityPanel');
+        if (quantityPanel) quantityPanel.classList.add('hidden');
+        this.pendingCameraScanCode = '';
+        this.cameraScanPaused = false;
         if (!('BarcodeDetector' in window)) {
             const fallback = document.getElementById('stockScannerFallback');
             if (fallback) fallback.classList.remove('hidden');
@@ -1397,27 +1474,39 @@ class StockManager {
         const video = document.getElementById('stockScannerVideo');
         if (!video) return;
 
+        if (!navigator.mediaDevices?.getUserMedia) {
+            if (fallback) fallback.classList.remove('hidden');
+            return;
+        }
         navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(stream => {
+            if (sessionId !== this.cameraSessionId || modal.style.display === 'none') {
+                stream.getTracks().forEach(track => track.stop());
+                return;
+            }
             video.srcObject = stream;
             const barcodeDetector = new BarcodeDetector({ formats: ['code_128', 'ean_13', 'qr_code', 'upc_a', 'code_39'] });
             let lastDetectedCode = '';
             let absentSince = 0;
             const scanLoop = async () => {
+                if (sessionId !== this.cameraSessionId || modal.style.display === 'none') return;
                 try {
-                    const barcodes = await barcodeDetector.detect(video);
+                    const barcodes = this.cameraScanPaused ? [] : await barcodeDetector.detect(video);
                     if (barcodes && barcodes.length) {
                         const code = barcodes[0].rawValue;
                         const normalizedCode = String(code || '').trim().toLowerCase();
                         if (normalizedCode !== lastDetectedCode) {
-                            this.processBarcode(code, mode);
+                            lastDetectedCode = normalizedCode;
+                            if (mode === 'cart') this.promptCameraScanQuantity(code);
+                            else {
+                                this.processBarcode(code, mode);
+                                if (mode !== 'stock') {
+                                    this.closeScannerModal();
+                                    return;
+                                }
+                            }
                         }
-                        if (mode !== 'stock') {
-                            this.closeScannerModal();
-                            return;
-                        }
-                        lastDetectedCode = normalizedCode;
                         absentSince = 0;
-                    } else if (mode === 'stock' && lastDetectedCode) {
+                    } else if (!this.cameraScanPaused && lastDetectedCode) {
                         if (!absentSince) absentSince = Date.now();
                         else if (Date.now() - absentSince >= 1500) {
                             lastDetectedCode = '';
@@ -1427,18 +1516,23 @@ class StockManager {
                 } catch (error) {
                     console.warn('Barcode scan failed:', error);
                 }
-                if (modal.style.display !== 'none') {
+                if (sessionId === this.cameraSessionId && modal.style.display !== 'none') {
                     requestAnimationFrame(scanLoop);
                 }
             };
             scanLoop();
         }).catch(error => {
+            if (sessionId !== this.cameraSessionId) return;
             console.warn('Camera access unavailable for stock scanner:', error);
             if (fallback) fallback.classList.remove('hidden');
         });
     }
 
     closeScannerModal() {
+        this.cameraSessionId += 1;
+        this.pendingCameraScanCode = '';
+        this.cameraScanPaused = false;
+        document.getElementById('stockScanQuantityPanel')?.classList.add('hidden');
         const modal = document.getElementById('stockScannerModal');
         if (modal) modal.style.display = 'none';
         const video = document.getElementById('stockScannerVideo');
@@ -1943,6 +2037,13 @@ window.onload = function () {
     document.querySelectorAll('input[type=text], input[type=number]').forEach(el => el.oninput = () => cartManager.updateUI());
     document.getElementById('stockNameInput')?.addEventListener('input', () => stockManager.fillSuggestedStockPrices());
     document.getElementById('emailForm').addEventListener('submit', (e) => supportManager.handleEmailSubmit(e));
+    document.getElementById('stockScanQuantityConfirm')?.addEventListener('click', () => stockManager.confirmCameraScanQuantity());
+    document.getElementById('stockScanQuantityCancel')?.addEventListener('click', () => stockManager.cancelCameraScanQuantity());
+    document.getElementById('stockScanQuantityInput')?.addEventListener('keydown', event => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        stockManager.confirmCameraScanQuantity();
+    });
     ['stockScanBarcodeInput', 'saleBarcodeInput', 'stockScannerManualInput'].forEach(id => {
         const input = document.getElementById(id);
         if (!input) return;
@@ -2064,10 +2165,30 @@ document.addEventListener('click', function (e) {
     e.target.classList.add('hidden');
 });
 
+function escapeDraftHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, character => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    })[character]);
+}
+
 function loadDrafts() {
     const container = document.getElementById('draftsList'), view = document.getElementById('draftView');
     const drafts = JSON.parse(localStorage.getItem('p3_pos_drafts') || '[]');
-    const html = drafts.length ? drafts.map(d => `<div class="draft-item"><span><b>${d.client || 'Guest'}</b> (${d.timestamp})</span><div class="draft-actions"><i class="fas fa-folder-open action-icon-primary" onclick="restoreDraft(${d.id})" title="Load"></i><i class="fas fa-trash action-icon-danger" onclick="deleteDraft(${d.id})" title="Delete"></i></div></div>`).join('') : '<p class="paragraph-small">No drafts available.</p>';
+    const deletedDrafts = JSON.parse(localStorage.getItem('p3_pos_deleted_drafts') || '[]');
+    const activeHtml = drafts.length ? drafts.map(d => {
+        const client = escapeDraftHtml(d.client || 'Guest');
+        return `<div class="draft-item"><span><b>${client}</b> (${escapeDraftHtml(d.timestamp)})</span><div class="draft-actions"><button type="button" class="draft-action-button" onclick="restoreDraft(${d.id})" title="Load draft" aria-label="Load draft for ${client}"><i class="fas fa-folder-open action-icon-primary"></i></button><button type="button" class="draft-action-button" onclick="deleteDraft(${d.id})" title="Move draft to recycle bin" aria-label="Delete draft for ${client}"><i class="fas fa-trash action-icon-danger"></i></button></div></div>`;
+    }).join('') : '<p class="paragraph-small">No drafts available.</p>';
+    const deletedHtml = deletedDrafts.length ? deletedDrafts.map(d => {
+        const client = escapeDraftHtml(d.client || 'Guest');
+        const deletedAt = d.deletedAt ? escapeDraftHtml(new Date(d.deletedAt).toLocaleString()) : 'previously';
+        return `<div class="draft-item"><span><b>${client}</b> (${escapeDraftHtml(d.timestamp)})<br><small>Deleted ${deletedAt}</small></span><div class="draft-actions"><button type="button" class="draft-action-button" onclick="restoreDeletedDraft(${d.id})" title="Restore draft" aria-label="Restore draft for ${client}"><i class="fas fa-rotate-left action-icon-primary"></i></button><button type="button" class="draft-action-button" onclick="permanentlyDeleteDraft(${d.id})" title="Permanently delete draft" aria-label="Permanently delete draft for ${client}"><i class="fas fa-trash action-icon-danger"></i></button></div></div>`;
+    }).join('') : '<p class="paragraph-small">Recycle bin is empty.</p>';
+    const html = `<h6 class="draft-list-heading">Saved Drafts</h6>${activeHtml}<h6 class="draft-list-heading">Recycle Bin</h6>${deletedHtml}`;
     if (container) container.innerHTML = html;
     if (view) view.innerHTML = html;
 }
@@ -2085,9 +2206,38 @@ function restoreDraft(id) {
 }
 
 function deleteDraft(id) {
-    let drafts = JSON.parse(localStorage.getItem('p3_pos_drafts') || '[]');
-    drafts = drafts.filter(x => x.id !== id);
-    localStorage.setItem('p3_pos_drafts', JSON.stringify(drafts)); loadDrafts();
+    const drafts = JSON.parse(localStorage.getItem('p3_pos_drafts') || '[]');
+    const draft = drafts.find(item => item.id === id);
+    if (!draft || !confirm(`Move the draft for ${draft.client || 'Guest'} to the recycle bin?`)) return;
+
+    const deletedDrafts = JSON.parse(localStorage.getItem('p3_pos_deleted_drafts') || '[]');
+    deletedDrafts.push({ ...draft, deletedAt: new Date().toISOString() });
+    localStorage.setItem('p3_pos_deleted_drafts', JSON.stringify(deletedDrafts));
+    localStorage.setItem('p3_pos_drafts', JSON.stringify(drafts.filter(item => item.id !== id)));
+    loadDrafts();
+}
+
+function restoreDeletedDraft(id) {
+    const deletedDrafts = JSON.parse(localStorage.getItem('p3_pos_deleted_drafts') || '[]');
+    const draft = deletedDrafts.find(item => item.id === id);
+    if (!draft) return;
+
+    const drafts = JSON.parse(localStorage.getItem('p3_pos_drafts') || '[]');
+    const restoredDraft = { ...draft };
+    delete restoredDraft.deletedAt;
+    drafts.push(restoredDraft);
+    localStorage.setItem('p3_pos_drafts', JSON.stringify(drafts));
+    localStorage.setItem('p3_pos_deleted_drafts', JSON.stringify(deletedDrafts.filter(item => item.id !== id)));
+    loadDrafts();
+}
+
+function permanentlyDeleteDraft(id) {
+    const deletedDrafts = JSON.parse(localStorage.getItem('p3_pos_deleted_drafts') || '[]');
+    const draft = deletedDrafts.find(item => item.id === id);
+    if (!draft || !confirm(`Permanently delete the draft for ${draft.client || 'Guest'}? This cannot be undone.`)) return;
+
+    localStorage.setItem('p3_pos_deleted_drafts', JSON.stringify(deletedDrafts.filter(item => item.id !== id)));
+    loadDrafts();
 }
 
 function buildStatementRows() {

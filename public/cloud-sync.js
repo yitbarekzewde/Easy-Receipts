@@ -19,6 +19,7 @@ const BUSINESS_KEYS = new Set([
     "p3_auto_prices",
     "p3_box_barcodes",
     "p3_pos_drafts",
+    "p3_pos_deleted_drafts",
     "p3_pos_snapshots",
     "p3_saved_customers",
     "p3_saved_stores",
@@ -30,6 +31,7 @@ const MAX_VALUE_BYTES = 800000;
 const MAX_INITIAL_DOCUMENTS = 499;
 const MAX_CHUNK_CODE_POINTS = 150000;
 const CHUNK_MARKER_PREFIX = "__EASY_RECEIPT_CHUNKS_V1__:";
+const SYNC_NOTICE_TIMEOUT = 8000;
 let activeUid = "";
 let syncReady = false;
 let applyingRemoteChanges = false;
@@ -37,9 +39,84 @@ let unsubscribeData = null;
 let pendingWrites = new Map();
 let flushTimer = 0;
 let latestRemoteChangeAt = 0;
+let syncNoticeTimer = 0;
+
+const CATALOG_KEYS = new Set([
+    "p3_auto_prices",
+    "p3_box_barcodes",
+    "p3_saved_customers",
+    "p3_saved_stores",
+    "p3_stock_items"
+]);
+const CATALOG_REFRESH_MS = 60000;
+let staffContext = null;
+let catalogTimer = 0;
+let authRun = 0;
 
 function isBusinessKey(key) {
-    return BUSINESS_KEYS.has(key);
+    return BUSINESS_KEYS.has(key) && !(staffContext && CATALOG_KEYS.has(key));
+}
+
+async function fetchOwnerValue(ownerUid, key) {
+    const snapshot = await getDoc(doc(db, "users", ownerUid, "appData", key));
+    if (!snapshot.exists()) return null;
+    const stored = snapshot.data().value;
+    const count = getChunkCount(stored);
+    if (!count) return stored;
+    const parts = await Promise.all(Array.from({ length: count }, (_, index) =>
+        getDoc(doc(db, "users", ownerUid, "appData", chunkKey(key, index)))));
+    if (parts.some(part => !part.exists())) return undefined;
+    return parts.map(part => part.data().value).join("");
+}
+
+async function refreshOwnerCatalog(ownerUid) {
+    let changed = 0;
+    for (const key of CATALOG_KEYS) {
+        const value = await fetchOwnerValue(ownerUid, key);
+        if (value === undefined) continue;
+        applyingRemoteChanges = true;
+        try {
+            if (value === null) {
+                if (localStorage.getItem(key) !== null) {
+                    localStorage.removeItem(key);
+                    changed += 1;
+                }
+            } else if (localStorage.getItem(key) !== value) {
+                localStorage.setItem(key, value);
+                changed += 1;
+            }
+        } finally {
+            applyingRemoteChanges = false;
+        }
+    }
+    return changed;
+}
+
+function startCatalogRefresh(ownerUid) {
+    window.clearInterval(catalogTimer);
+    catalogTimer = window.setInterval(() => {
+        refreshOwnerCatalog(ownerUid).then(changed => {
+            if (changed) showSyncNotice("The business owner updated products or prices. Reload to refresh this page.", false, true);
+        }).catch(error => console.warn("Could not refresh the owner catalog.", error));
+    }, CATALOG_REFRESH_MS);
+}
+
+async function loadStaffRecord(user) {
+    try {
+        const snapshot = await getDoc(doc(db, "staff", user.uid));
+        return snapshot.exists() ? snapshot.data() : null;
+    } catch (error) {
+        console.warn("Could not check the cashier record.", error);
+        return null;
+    }
+}
+
+function resetDeviceIfAccountChanged(uid) {
+    const previous = localStorage.getItem("p3_device_owner");
+    if (previous && previous !== uid) {
+        BUSINESS_KEYS.forEach(key => localStorage.removeItem(key));
+    }
+    if (previous !== uid) localStorage.setItem("p3_device_owner", uid);
 }
 
 function getChunkCount(value) {
@@ -101,20 +178,20 @@ function getOrCreateSyncNotice() {
 }
 
 function hideSyncNotice() {
+    window.clearTimeout(syncNoticeTimer);
+    syncNoticeTimer = 0;
     const notice = document.getElementById("cloudSyncNotice");
     if (notice) notice.style.display = "none";
 }
 
-function createSyncNoticeCloseButton(notice) {
+function createSyncNoticeCloseButton() {
     const closeButton = document.createElement("button");
     closeButton.type = "button";
     closeButton.textContent = "\u00d7";
     closeButton.title = "Dismiss";
     closeButton.setAttribute("aria-label", "Dismiss");
     closeButton.style.cssText = "flex:0 0 auto;width:auto;border:0;background:transparent;color:#fff;font-size:18px;line-height:1;cursor:pointer;padding:2px 4px;margin:-2px -4px 0 0";
-    closeButton.addEventListener("click", () => {
-        notice.style.display = "none";
-    });
+    closeButton.addEventListener("click", hideSyncNotice);
     return closeButton;
 }
 
@@ -137,8 +214,10 @@ function renderGoogleSignInButton(container) {
 }
 
 function showSignInPrompt(message) {
+    hideSyncNotice();
     const notice = getOrCreateSyncNotice();
     notice.replaceChildren();
+    notice.style.display = "block";
     notice.style.background = "#172722";
 
     const header = document.createElement("div");
@@ -148,7 +227,7 @@ function showSignInPrompt(message) {
     text.textContent = message;
     text.style.cssText = "flex:1;margin-bottom:10px";
     header.appendChild(text);
-    header.appendChild(createSyncNoticeCloseButton(notice));
+    header.appendChild(createSyncNoticeCloseButton());
     notice.appendChild(header);
 
     const googleButtonHost = document.createElement("div");
@@ -157,17 +236,30 @@ function showSignInPrompt(message) {
 }
 
 function showSyncNotice(message, isError = false, offerReload = false) {
+    hideSyncNotice();
     const notice = getOrCreateSyncNotice();
-    notice.replaceChildren(document.createTextNode(message));
+    notice.replaceChildren();
+    notice.style.display = "flex";
+    notice.style.alignItems = "center";
+    notice.style.gap = "10px";
     notice.style.background = isError ? "#9b2c2c" : "#172722";
+
+    const text = document.createElement("div");
+    text.textContent = message;
+    text.style.flex = "1";
+    notice.appendChild(text);
+
     if (offerReload) {
         const button = document.createElement("button");
         button.type = "button";
         button.textContent = "Reload";
-        button.style.cssText = "width:auto;margin-left:10px;padding:5px 9px;border:0;border-radius:4px;background:#fff;color:#172722;font-weight:700;cursor:pointer";
+        button.style.cssText = "flex:0 0 auto;width:auto;margin:0;padding:5px 9px;border:0;border-radius:4px;background:#fff;color:#172722;font-weight:700;cursor:pointer";
         button.addEventListener("click", () => window.location.reload());
         notice.appendChild(button);
     }
+
+    notice.appendChild(createSyncNoticeCloseButton());
+    syncNoticeTimer = window.setTimeout(hideSyncNotice, SYNC_NOTICE_TIMEOUT);
 }
 
 function readLocalBusinessData() {
@@ -288,7 +380,7 @@ function installStorageSync() {
 }
 
 async function claimInitialSync(uid) {
-    const entries = readLocalBusinessData();
+    const entries = staffContext ? [] : readLocalBusinessData();
     const stateReference = doc(db, "users", uid, "syncMeta", "state");
     const existingState = await getDoc(stateReference);
     if (!existingState.exists()) {
@@ -444,6 +536,7 @@ async function startSync(user) {
 }
 
 function stopSync() {
+    window.clearInterval(catalogTimer);
     syncReady = false;
     activeUid = "";
     pendingWrites.clear();
@@ -464,21 +557,73 @@ window.easyReceiptSignInWithGoogle = idToken =>
 
 onAuthStateChanged(auth, user => {
     stopSync();
+    staffContext = null;
+    window.easyReceiptStaff = null;
+    const run = ++authRun;
     if (!user) {
         showSignInPrompt("Sign in with your Easy Receipt account to sync business data across devices.");
         return;
     }
     hideSyncNotice();
-    localStorage.setItem("p3_user_profile", JSON.stringify({
-        name: user.displayName || user.email || "Cashier",
-        email: user.email || "",
-        provider: user.providerData[0]?.providerId || "firebase"
-    }));
-    const displayName = document.getElementById("user-display-name");
-    if (displayName) displayName.textContent = user.displayName || user.email || "Cashier";
-    void startSync(user).catch(error => {
-        console.error("Easy Receipt cloud sync could not start.", error);
-        stopSync();
-        showSyncNotice(`Cloud sync could not start: ${error.message} Your local data remains on this device.`, true);
-    });
+    void (async () => {
+        const staff = await loadStaffRecord(user);
+        if (run !== authRun) return;
+        if (staff && staff.active !== true) {
+            showSyncNotice("This cashier account has been deactivated by the business owner.", true);
+            await signOut(auth);
+            window.setTimeout(() => window.location.replace(new URL("login.html", import.meta.url).href), 1500);
+            return;
+        }
+        if (staff) {
+            staffContext = { ownerUid: staff.ownerUid, name: staff.name || user.displayName || user.email };
+            window.easyReceiptStaff = staffContext;
+            document.querySelectorAll(".workspace-link, .brand-lockup").forEach(link => {
+                if (link.classList.contains("workspace-link")) link.classList.add("hidden");
+                else link.removeAttribute("href");
+            });
+            document.getElementById("staffBar")?.classList.remove("hidden");
+            document.getElementById("staffSignOut")?.addEventListener("click", async () => {
+                try {
+                    await window.easyReceiptSignOut();
+                    window.location.replace(new URL("login.html", import.meta.url).href);
+                } catch (error) {
+                    showSyncNotice(`Could not sign out: ${error.message}`, true);
+                }
+            });
+            if (!/\/sales\.html$/i.test(window.location.pathname)) {
+                window.location.replace(new URL("sales.html", import.meta.url).href);
+                return;
+            }
+        }
+        resetDeviceIfAccountChanged(user.uid);
+        const displayLabel = (staff && staff.name) || user.displayName || user.email || "Cashier";
+        localStorage.setItem("p3_user_profile", JSON.stringify({
+            name: displayLabel,
+            email: user.email || "",
+            provider: user.providerData[0]?.providerId || "firebase",
+            role: staff ? "Cashier" : undefined
+        }));
+        const displayName = document.getElementById("user-display-name");
+        if (displayName) displayName.textContent = displayLabel;
+        const staffName = document.getElementById("staffName");
+        if (staffName) staffName.textContent = displayLabel;
+
+        try {
+            if (staffContext) {
+                const changed = await refreshOwnerCatalog(staffContext.ownerUid);
+                if (run !== authRun) return;
+                if (changed && !sessionStorage.getItem("p3_catalog_loaded")) {
+                    sessionStorage.setItem("p3_catalog_loaded", "1");
+                    window.location.reload();
+                    return;
+                }
+                startCatalogRefresh(staffContext.ownerUid);
+            }
+            await startSync(user);
+        } catch (error) {
+            console.error("Easy Receipt cloud sync could not start.", error);
+            stopSync();
+            showSyncNotice(`Cloud sync could not start: ${error.message} Your local data remains on this device.`, true);
+        }
+    })();
 });

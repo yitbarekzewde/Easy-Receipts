@@ -4,6 +4,22 @@
     const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwxD52Ibd3FcOREtqmCgPgoNcRmKzDlKQVBui9Ea0nRl75MEihx_Fwfvm8dpG_wn_tCtg/exec';
     const CUSTOMER_RECEIPT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxnzc70hmMw9G8fIPRX1eiypQfglG5Yw9in3XLVPGDx02GOzk6ibMnR2y7M7WfeaDdpUA/exec';
     const byId = id => document.getElementById(id);
+    const readArray = key => {
+        try {
+            const value = JSON.parse(localStorage.getItem(key) || '[]');
+            return Array.isArray(value) ? value : [];
+        } catch {
+            return [];
+        }
+    };
+    const readObject = key => {
+        try {
+            const value = JSON.parse(localStorage.getItem(key) || '{}');
+            return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+        } catch {
+            return {};
+        }
+    };
     const money = value => `R ${Number(value || 0).toFixed(2)}`;
     const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[char]);
     let selectedCustomerId = '';
@@ -12,6 +28,11 @@
     let verifiedRegistrationEmail = '';
     let requestedRegistrationEmail = '';
     let savingCredit = false;
+    let creditCameraStream = null;
+    let creditDetector = null;
+    let cameraPendingItem = null;
+    let cameraCatalog = [];
+    const VIEWS = ['home', 'new-customer', 'accounts', 'profile'];
 
     function getCustomers() {
         try {
@@ -49,6 +70,46 @@
         return Number(autoPrice) > 0 ? Number(autoPrice) : Number(item.sellPrice || 0);
     }
 
+    function buildBarcodeCatalog() {
+        const stockItems = getStockItems();
+        const mappings = readArray('p3_box_barcodes');
+        const fallbackPrices = getAutoPrices();
+        const list = stockItems.map(item => ({
+            stockItemId: String(item.id),
+            name: String(item.name || '').trim(),
+            barcode: String(item.barcode || '').trim(),
+            caseBarcode: String(item.caseBarcode || '').trim(),
+            unitsPerBox: Math.max(1, Math.round(Number(item.unitsPerBox) || 1)),
+            price: getStockPrice(item),
+            stockQty: Math.max(0, Number(item.qty || 0))
+        })).filter(item => item.name);
+        mappings.forEach(mapping => {
+            const name = String(mapping.name || '').trim();
+            if (!name) return;
+            const existing = list.find(item => item.name.toLowerCase() === name.toLowerCase());
+            if (existing) {
+                existing.caseBarcode ||= String(mapping.barcode || '').trim();
+                existing.unitsPerBox = Math.max(1, Math.round(Number(mapping.unitsPerBox) || existing.unitsPerBox || 1));
+                return;
+            }
+            const mappedPrice = Number(fallbackPrices[name.toLowerCase()]?.price || 0);
+            list.push({
+                stockItemId: '',
+                name,
+                barcode: '',
+                caseBarcode: String(mapping.barcode || '').trim(),
+                unitsPerBox: Math.max(1, Math.round(Number(mapping.unitsPerBox) || 1)),
+                price: mappedPrice,
+                stockQty: Number.POSITIVE_INFINITY
+            });
+        });
+        return list;
+    }
+
+    function setCreditScanMessage(message, state = '') {
+        setStatus('creditScanStatus', message, state);
+    }
+
     function getSelectedCustomer(customers = getCustomers()) {
         return customers.find(customer => String(customer.id) === String(selectedCustomerId)) || null;
     }
@@ -57,6 +118,22 @@
         const status = byId(id);
         status.textContent = message;
         status.dataset.state = state;
+    }
+
+    function setActiveView(view) {
+        const active = VIEWS.includes(view) ? view : 'home';
+        VIEWS.forEach(name => {
+            byId(`view-${name}`)?.classList.toggle('hidden', name !== active);
+        });
+        document.querySelectorAll('.bottom-nav-button').forEach(button => {
+            const selected = button.dataset.view === active;
+            button.classList.toggle('active', selected);
+            button.setAttribute('aria-current', selected ? 'page' : 'false');
+        });
+        if (active === 'profile' && !selectedCustomerId) {
+            const first = getCustomers()[0];
+            if (first) selectedCustomerId = String(first.id);
+        }
     }
 
     function normalizeEmail(value) {
@@ -376,11 +453,136 @@
     function renderCreditStock() {
         const availableCount = getOrderingItems().filter(item => item.stockItem && item.available > 0 && item.price > 0).length;
         byId('creditStockStatus').textContent = availableCount
-            ? 'Choose products from the main Ordering catalog using the button below.'
-            : 'No priced products with stock are available in the Ordering catalog.';
+            ? 'Scan barcodes, use camera or search stock items.'
+            : 'No priced products with stock are available in the catalog.';
         byId('creditCart').innerHTML = creditCart.length ? creditCart.map((item, index) => `
             <div class="credit-cart-line"><span>${escapeHtml(item.name)} × ${Number(item.qty)}</span><strong>${money(item.price * item.qty)}</strong><button type="button" data-remove-credit-item="${index}" aria-label="Remove ${escapeHtml(item.name)}"><i class="fas fa-times" aria-hidden="true"></i></button></div>
         `).join('') : '<div class="credit-cart-empty">No stock items added.</div>';
+    }
+
+    function addCreditCartItem(item, quantity) {
+        const qty = Math.max(1, Math.round(Number(quantity) || 1));
+        const stockItem = item.stockItemId ? getStockItems().find(entry => String(entry.id) === String(item.stockItemId)) : null;
+        const stockAvailable = Number(stockItem?.qty ?? item.stockQty ?? Number.POSITIVE_INFINITY);
+        const alreadyAdded = creditCart
+            .filter(entry => String(entry.stockItemId || '') === String(item.stockItemId || ''))
+            .reduce((sum, entry) => sum + Number(entry.qty || 0), 0);
+        if (Number.isFinite(stockAvailable) && alreadyAdded + qty > stockAvailable) {
+            setCreditScanMessage(`Not enough ${item.name} remains in stock.`, 'error');
+            return false;
+        }
+        const existing = creditCart.find(entry =>
+            String(entry.stockItemId || '') === String(item.stockItemId || '')
+            && entry.name.toLowerCase() === item.name.toLowerCase());
+        if (existing) existing.qty += qty;
+        else creditCart.push({
+            stockItemId: item.stockItemId ? Number(item.stockItemId) : null,
+            barcode: item.barcode || item.caseBarcode || '',
+            name: item.name,
+            price: Number(item.price || 0),
+            qty
+        });
+        renderCreditStock();
+        updateCreditPreview();
+        setCreditScanMessage(`Added ${qty} x ${item.name}.`, 'success');
+        setStatus('ledgerStatus', `${qty} x ${item.name} added to the credit cart.`, 'success');
+        return true;
+    }
+
+    function scanCreditBarcode(value, fromCamera = false) {
+        const code = String(value || '').trim().toLowerCase();
+        if (!code) {
+            setCreditScanMessage('Scan or enter a barcode first.', 'error');
+            return;
+        }
+        cameraCatalog = buildBarcodeCatalog();
+        const found = cameraCatalog.find(item => item.barcode && item.barcode.toLowerCase() === code)
+            || cameraCatalog.find(item => item.caseBarcode && item.caseBarcode.toLowerCase() === code);
+        if (!found) {
+            setCreditScanMessage('Barcode not found in stock or box mappings.', 'error');
+            byId('creditBarcodeInput').select();
+            return;
+        }
+        const defaultQty = found.caseBarcode && found.caseBarcode.toLowerCase() === code ? found.unitsPerBox : 1;
+        if (fromCamera) {
+            cameraPendingItem = found;
+            byId('creditCameraQtyLabel').textContent = found.name;
+            byId('creditCameraQtyInput').value = String(defaultQty);
+            byId('creditCameraQtyPanel').classList.remove('hidden');
+            byId('creditCameraQtyInput').focus();
+            byId('creditCameraQtyInput').select();
+            setCreditScanMessage(`Found ${found.name}. Confirm quantity.`, 'success');
+            return;
+        }
+        addCreditCartItem(found, defaultQty);
+        byId('creditBarcodeInput').value = '';
+        byId('creditBarcodeInput').focus();
+    }
+
+    function resumeCreditCameraScan() {
+        cameraPendingItem = null;
+        byId('creditCameraQtyPanel').classList.add('hidden');
+        if (creditCameraStream) {
+            setCreditScanMessage('Ready for the next barcode.');
+            startCreditDetectLoop();
+        }
+    }
+
+    function confirmCreditCameraQuantity() {
+        if (!cameraPendingItem) return;
+        const quantity = Number(byId('creditCameraQtyInput').value);
+        if (!Number.isInteger(quantity) || quantity < 1) {
+            setCreditScanMessage('Enter a whole quantity of 1 or more.', 'error');
+            byId('creditCameraQtyInput').focus();
+            return;
+        }
+        if (addCreditCartItem(cameraPendingItem, quantity)) resumeCreditCameraScan();
+    }
+
+    function startCreditDetectLoop() {
+        const stream = creditCameraStream;
+        const detect = async () => {
+            if (!creditCameraStream || creditCameraStream !== stream || cameraPendingItem) return;
+            try {
+                const matches = await creditDetector.detect(byId('creditCameraPreview'));
+                if (matches.length && creditCameraStream === stream) {
+                    byId('creditBarcodeInput').value = matches[0].rawValue;
+                    scanCreditBarcode(matches[0].rawValue, true);
+                    if (cameraPendingItem) return;
+                    await new Promise(resolve => setTimeout(resolve, 1200));
+                }
+            } catch (error) {
+                console.warn('Credit camera barcode scan failed:', error);
+            }
+            if (creditCameraStream === stream && !cameraPendingItem) requestAnimationFrame(detect);
+        };
+        detect();
+    }
+
+    async function startCreditCamera() {
+        if (!('BarcodeDetector' in window) || !navigator.mediaDevices?.getUserMedia) {
+            setCreditScanMessage('Camera scanning is not supported here. Use a USB or Bluetooth scanner.', 'error');
+            return;
+        }
+        try {
+            creditCameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            byId('creditCameraPreview').srcObject = creditCameraStream;
+            byId('creditCameraPanel').classList.remove('hidden');
+            creditDetector = new BarcodeDetector({ formats: ['code_128', 'ean_13', 'qr_code', 'upc_a', 'code_39'] });
+            setCreditScanMessage('Camera ready. Hold a barcode in view.');
+            startCreditDetectLoop();
+        } catch {
+            setCreditScanMessage('Camera access was blocked. Use a USB or Bluetooth scanner.', 'error');
+        }
+    }
+
+    function stopCreditCamera() {
+        if (creditCameraStream) creditCameraStream.getTracks().forEach(track => track.stop());
+        creditCameraStream = null;
+        cameraPendingItem = null;
+        byId('creditCameraPreview').srcObject = null;
+        byId('creditCameraQtyPanel').classList.add('hidden');
+        byId('creditCameraPanel').classList.add('hidden');
     }
 
     function getOrderingItems() {
@@ -815,6 +1017,26 @@
     });
 
     byId('openOrderingCatalog').addEventListener('click', openOrderingCatalog);
+    byId('creditBarcodeInput').addEventListener('keydown', event => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        scanCreditBarcode(byId('creditBarcodeInput').value);
+    });
+    byId('addCreditBarcode').addEventListener('click', () => scanCreditBarcode(byId('creditBarcodeInput').value));
+    byId('toggleCreditCamera').addEventListener('click', startCreditCamera);
+    byId('stopCreditCamera').addEventListener('click', stopCreditCamera);
+    byId('creditCameraQtyConfirm').addEventListener('click', confirmCreditCameraQuantity);
+    byId('creditCameraQtySkip').addEventListener('click', resumeCreditCameraScan);
+    byId('creditCameraQtyInput').addEventListener('keydown', event => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            confirmCreditCameraQuantity();
+        }
+        if (event.key === 'Escape') resumeCreditCameraScan();
+    });
+    document.querySelectorAll('.bottom-nav-button').forEach(button => {
+        button.addEventListener('click', () => setActiveView(button.dataset.view));
+    });
     byId('closeOrderingCatalog').addEventListener('click', closeOrderingCatalog);
     byId('cancelOrderingCatalog').addEventListener('click', closeOrderingCatalog);
     byId('orderingCatalogModal').addEventListener('click', event => {
@@ -832,6 +1054,7 @@
         if (event.key === 'Escape' && !byId('customerStatementModal').classList.contains('hidden')) closeCustomerStatement();
         if (event.key === 'Escape' && !byId('identityImageModal').classList.contains('hidden')) closeIdentityImage();
         if (event.key === 'Escape' && !byId('orderingCatalogModal').classList.contains('hidden')) closeOrderingCatalog();
+        if (event.key === 'Escape' && !byId('creditCameraQtyPanel').classList.contains('hidden')) resumeCreditCameraScan();
     });
     byId('creditCart').addEventListener('click', event => {
         const removeButton = event.target.closest('[data-remove-credit-item]');
@@ -940,6 +1163,7 @@
         if (!row) return;
         selectedCustomerId = row.dataset.customerId;
         render();
+        setActiveView('profile');
     });
     window.addEventListener('storage', event => {
         if (event.key === STORAGE_KEY) render();
@@ -948,5 +1172,10 @@
             if (!byId('orderingCatalogModal').classList.contains('hidden')) renderOrderingCatalog();
         }
     });
+    window.addEventListener('beforeunload', stopCreditCamera);
+    byId('ledgerCustomer').addEventListener('change', () => {
+        if (byId('ledgerCustomer').value) setStatus('creditScanStatus', 'Ready to scan stock items for this account.');
+    });
+    setActiveView('home');
     render();
 })();

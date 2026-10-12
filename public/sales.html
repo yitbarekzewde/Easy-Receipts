@@ -19,6 +19,8 @@
         <div class="header-tools">
             <span class="register-status"><span></span> Register ready</span>
             <a class="workspace-link" href="../index.html"><i class="fas fa-arrow-left" aria-hidden="true"></i> Workspace</a>
+            <span id="staffBar" class="staff-bar hidden"><i class="fas fa-user" aria-hidden="true"></i> <span id="staffName"></span>
+                <button id="staffSignOut" class="button button-quiet" type="button"><i class="fas fa-right-from-bracket" aria-hidden="true"></i> Sign out</button></span>
         </div>
     </header>
 
@@ -43,10 +45,16 @@
                     </div>
                     <div class="customer-controls">
                         <select id="posCustomer" aria-label="Choose customer"></select>
-                        <button id="showCustomerForm" class="button button-quiet" type="button"><i class="fas fa-user-plus" aria-hidden="true"></i> New customer</button>
                     </div>
                     <p id="customerBalance" class="customer-balance" aria-live="polite"></p>
-                    <div id="customerForm" class="customer-form hidden">
+                    <div id="customerForm" class="customer-form sheet hidden" role="dialog" aria-label="New customer">
+                        <h2 class="sheet-title">New customer</h2>
+                        <select id="newCustomerIdType" aria-label="Identity document type">
+                            <option value="sa-id">South African ID</option>
+                            <option value="passport">Passport</option>
+                        </select>
+                        <input id="newCustomerIdNumber" type="text" inputmode="numeric" autocomplete="off" placeholder="13-digit ID number" aria-label="Identity number" aria-describedby="newCustomerIdStatus" required>
+                        <p id="newCustomerIdStatus" class="sheet-status" aria-live="polite"></p>
                         <input id="newCustomerName" type="text" placeholder="Customer name" autocomplete="name" aria-label="New customer name">
                         <input id="newCustomerPhone" type="tel" placeholder="Phone (optional)" autocomplete="tel" aria-label="Customer phone">
                         <input id="newCustomerEmail" type="email" placeholder="Email (optional)" autocomplete="email" aria-label="Customer email">
@@ -72,6 +80,15 @@
                     </div>
                     <div id="cameraPanel" class="camera-panel hidden">
                         <video id="cameraPreview" autoplay playsinline muted></video>
+                        <div id="cameraQtyPanel" class="camera-qty-panel hidden">
+                            <strong id="cameraQtyLabel">Item</strong>
+                            <label for="cameraQtyInput">Quantity</label>
+                            <input id="cameraQtyInput" type="number" min="1" step="1" value="1" inputmode="numeric">
+                            <div class="camera-qty-actions">
+                                <button id="cameraQtyConfirm" class="button" type="button">Add &amp; scan next</button>
+                                <button id="cameraQtySkip" class="button button-quiet" type="button">Skip</button>
+                            </div>
+                        </div>
                         <button id="stopCamera" class="button button-quiet" type="button"><i class="fas fa-stop" aria-hidden="true"></i> Stop camera</button>
                     </div>
                     <p id="scanStatus" class="scan-status" role="status" aria-live="polite">Ready to scan.</p>
@@ -102,14 +119,7 @@
                         <span>Scan a barcode or choose a product</span>
                     </div>
 
-                    <div class="adjustments-grid">
-                        <label>Discount %<input id="discountPercent" type="number" min="0" max="100" step="0.01" value="0"></label>
-                        <label>Tax %<input id="taxPercent" type="number" min="0" max="100" step="0.01" value="0"></label>
-                    </div>
                     <div class="totals-list">
-                        <div><span>Subtotal</span><strong id="subtotalValue">R 0.00</strong></div>
-                        <div id="discountRow" class="hidden"><span>Discount</span><strong id="discountValue">- R 0.00</strong></div>
-                        <div id="taxRow" class="hidden"><span>Tax</span><strong id="taxValue">R 0.00</strong></div>
                         <div class="grand-total"><span>Total due</span><strong id="totalValue">R 0.00</strong></div>
                     </div>
 
@@ -127,13 +137,19 @@
                     <p id="checkoutStatus" class="checkout-status" role="status" aria-live="polite"></p>
                 </section>
 
-                <section class="recent-panel panel">
+                <section id="recentPanel" class="recent-panel panel sheet hidden" role="dialog" aria-label="Recent sales">
                     <div class="recent-heading"><h2>Recent sales</h2><i class="fas fa-clock" aria-hidden="true"></i></div>
                     <div id="recentSales" class="recent-sales"></div>
                 </section>
             </aside>
         </div>
     </main>
+
+    <div id="sheetBackdrop" class="sheet-backdrop hidden"></div>
+    <nav class="bottom-bar" aria-label="Quick actions">
+        <button id="showCustomerForm" class="button button-quiet" type="button"><i class="fas fa-user-plus" aria-hidden="true"></i> New customer</button>
+        <button id="showRecentSales" class="button button-quiet" type="button"><i class="fas fa-clock" aria-hidden="true"></i> Recent sales</button>
+    </nav>
 
     <section id="printReceiptContent" class="print-receipt" aria-label="Receipt for printing"></section>
 </body>

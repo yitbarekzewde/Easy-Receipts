@@ -20,6 +20,100 @@
             color: var(--text);
         }
 
+        [hidden] {
+            display: none !important;
+        }
+
+        .auth-gate {
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+            box-sizing: border-box;
+        }
+
+        .auth-card {
+            width: min(100%, 390px);
+            padding: 32px;
+            box-sizing: border-box;
+            border-radius: 15px;
+            background: white;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        .auth-card h2 {
+            margin: 0 0 8px;
+        }
+
+        .auth-card p {
+            color: #666;
+            line-height: 1.5;
+        }
+
+        .auth-card label {
+            display: block;
+            margin: 18px 0 6px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .auth-card input {
+            width: 100%;
+            padding: 12px;
+            box-sizing: border-box;
+            border: 1px solid #cbd5e1;
+            border-radius: 7px;
+            font: inherit;
+        }
+
+        .auth-submit,
+        .btn-sign-out {
+            border: 0;
+            border-radius: 7px;
+            padding: 11px 16px;
+            font: inherit;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .auth-submit {
+            width: 100%;
+            margin-top: 20px;
+            background: var(--primary);
+            color: #000;
+        }
+
+        .auth-submit:disabled {
+            cursor: wait;
+            opacity: 0.7;
+        }
+
+        .auth-status {
+            margin: 12px 0 0;
+            color: #b42318 !important;
+            font-size: 13px;
+        }
+
+        .auth-links {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            margin-top: 20px;
+            font-size: 13px;
+        }
+
+        .auth-links a,
+        .auth-back-link {
+            color: #166534;
+        }
+
+        .auth-back-link {
+            display: block;
+            margin-top: 18px;
+            text-align: center;
+            font-size: 13px;
+        }
+
         /* Professional Topbar */
         .topbar {
             background: #1a1a1a;
@@ -35,6 +129,12 @@
             margin: 0;
         }
 
+        .topbar-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
         .btn-back {
             background: var(--primary);
             color: #000;
@@ -43,6 +143,12 @@
             text-decoration: none;
             font-weight: 600;
             font-size: 13px;
+        }
+
+        .btn-sign-out {
+            background: transparent;
+            color: white;
+            border: 1px solid #777;
         }
 
         .wrap {
@@ -134,47 +240,156 @@
 </head>
 
 <body>
-
-    <div class="topbar">
-        <h1><i class="fas fa-shield-alt"></i> SYSTEM ADMIN</h1>
-        <a class="btn-back" href="../index.html">Back to App</a>
-    </div>
-
-    <div class="wrap">
-        <div class="stats-row" id="statsRow"></div>
-
-        <div class="panel">
-            <div class="panel-header">
-                <h2>Customer Directory</h2>
-                <button class="btn" onclick="renderAll()"><i class="fas fa-sync"></i> Refresh Data</button>
+    <main class="auth-gate" id="dashboardAuthGate">
+        <section class="auth-card" aria-labelledby="dashboardAuthTitle">
+            <h2 id="dashboardAuthTitle"><i class="fas fa-lock" aria-hidden="true"></i> System Admin Sign In</h2>
+            <p>Sign in with your verified Easy Receipt email and password to continue.</p>
+            <form id="dashboardAuthForm">
+                <label for="dashboardEmail">Email</label>
+                <input type="email" id="dashboardEmail" name="email" autocomplete="username" required>
+                <label for="dashboardPassword">Password</label>
+                <input type="password" id="dashboardPassword" name="password" autocomplete="current-password" required>
+                <p class="auth-status" id="dashboardAuthStatus" role="status" aria-live="polite" hidden></p>
+                <button class="auth-submit" id="dashboardAuthSubmit" type="submit">Sign in</button>
+            </form>
+            <div class="auth-links">
+                <a href="reg-form.html">Set up an account</a>
+                <a href="forgot-password.html">Forgot password?</a>
             </div>
-            <table id="usersTable">
-                <thead>
-                    <tr>
-                        <th>User</th>
-                        <th>Email</th>
-                        <th>Registered</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="usersTableBody"></tbody>
-            </table>
-            <div id="usersEmptyState" class="empty-state" style="display:none;">No customers found.</div>
+            <a class="auth-back-link" href="index.html">Back to Easy Receipt</a>
+        </section>
+    </main>
+
+    <div id="adminDashboard" hidden>
+        <div class="topbar">
+            <h1><i class="fas fa-shield-alt"></i> SYSTEM ADMIN</h1>
+            <div class="topbar-actions">
+                <a class="btn-back" href="index.html">Back to App</a>
+                <button class="btn-sign-out" id="dashboardSignOut" type="button">Sign out</button>
+            </div>
+        </div>
+
+        <div class="wrap">
+            <div class="stats-row" id="statsRow"></div>
+
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>Customer Directory</h2>
+                </div>
+                <table id="usersTable">
+                    <thead>
+                        <tr>
+                            <th>User</th>
+                            <th>Email</th>
+                            <th>Registered</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usersTableBody"></tbody>
+                </table>
+                <div id="usersEmptyState" class="empty-state" style="display:none;">No customers found.</div>
+            </div>
         </div>
     </div>
 
-    <script>
-        // ... (Use your existing data functions getUsers, getLog, etc here)
+    <script type="module">
+        import { auth } from './firebase-config.js';
+        import {
+            onAuthStateChanged,
+            signInWithEmailAndPassword,
+            signOut
+        } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js';
 
-        function renderAll() {
-            renderStats();
-            renderUsers();
-            // ... include rest of your rendering logic
+        const authGate = document.getElementById('dashboardAuthGate');
+        const dashboard = document.getElementById('adminDashboard');
+        const authForm = document.getElementById('dashboardAuthForm');
+        const authStatus = document.getElementById('dashboardAuthStatus');
+        const authSubmit = document.getElementById('dashboardAuthSubmit');
+        const passwordInput = document.getElementById('dashboardPassword');
+
+        function showAuthMessage(message) {
+            authStatus.textContent = message;
+            authStatus.hidden = !message;
         }
 
-        // Call render on load
-        renderAll();
+        function showDashboard(user) {
+            authGate.hidden = Boolean(user);
+            dashboard.hidden = !user;
+        }
+
+        function getSignInErrorMessage(error) {
+            if (error.code === 'auth/invalid-credential' || error.code === 'auth/invalid-login-credentials') {
+                return 'Email or password is incorrect. Please try again.';
+            }
+            if (error.code === 'auth/too-many-requests') {
+                return 'Too many sign-in attempts. Please wait and try again.';
+            }
+            if (error.code === 'auth/network-request-failed') {
+                return 'Could not connect. Check your internet connection and try again.';
+            }
+            if (error.code === 'auth/user-disabled') {
+                return 'This account has been disabled. Contact support for help.';
+            }
+            return 'Could not sign in. Please try again later.';
+        }
+
+        onAuthStateChanged(auth, user => {
+            const verifiedUser = user?.emailVerified ? user : null;
+            showDashboard(verifiedUser);
+            if (user && !verifiedUser) {
+                void signOut(auth).catch(error => {
+                    console.error('Could not sign out the unverified dashboard account.', error);
+                    showAuthMessage('This account must verify its email before using the dashboard. Sign out from the app and try again.');
+                });
+                showAuthMessage('Please verify your email address before signing in.');
+            } else if (verifiedUser) {
+                showAuthMessage('');
+            }
+        }, error => {
+            console.error('Could not determine dashboard sign-in state.', error);
+            showDashboard(null);
+            showAuthMessage('Could not check your sign-in status. Reload the page and try again.');
+        });
+
+        authForm.addEventListener('submit', async event => {
+            event.preventDefault();
+            if (authSubmit.disabled) return;
+            authSubmit.disabled = true;
+            authSubmit.textContent = 'Signing in...';
+            showAuthMessage('');
+
+            try {
+                const credential = await signInWithEmailAndPassword(
+                    auth,
+                    document.getElementById('dashboardEmail').value.trim(),
+                    passwordInput.value
+                );
+                if (!credential.user.emailVerified) {
+                    await signOut(auth);
+                    showAuthMessage('Please verify your email address before signing in.');
+                    return;
+                }
+                passwordInput.value = '';
+            } catch (error) {
+                console.error('Dashboard sign-in failed.', error);
+                showAuthMessage(getSignInErrorMessage(error));
+            } finally {
+                authSubmit.disabled = false;
+                authSubmit.textContent = 'Sign in';
+            }
+        });
+
+        document.getElementById('dashboardSignOut').addEventListener('click', async () => {
+            try {
+                await signOut(auth);
+                passwordInput.value = '';
+                showAuthMessage('');
+            } catch (error) {
+                console.error('Could not sign out of the dashboard.', error);
+                window.alert('Could not sign out. Please try again.');
+            }
+        });
     </script>
 </body>
 

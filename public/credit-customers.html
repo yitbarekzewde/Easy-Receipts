@@ -21,108 +21,153 @@
     </header>
 
     <main class="credit-shell">
-        <section class="page-heading">
-            <div>
-                <p class="eyebrow">CUSTOMER ACCOUNTS</p>
-                <h1>Credit customers</h1>
-                <p class="heading-copy">Registration, account balances and credit activity in one place.</p>
-            </div>
-            <span class="fee-policy"><i class="fas fa-percent" aria-hidden="true"></i> 10% service fee on new credit</span>
-        </section>
-
-        <section class="metrics" aria-label="Credit account summary">
-            <div class="metric"><span>Credit accounts</span><strong id="accountCount">0</strong><i class="fas fa-users" aria-hidden="true"></i></div>
-            <div class="metric metric-due"><span>Total outstanding</span><strong id="outstandingTotal">R 0.00</strong><i class="fas fa-file-invoice-dollar" aria-hidden="true"></i></div>
-            <div class="metric metric-fee"><span>Fees added</span><strong id="feesTotal">R 0.00</strong><i class="fas fa-chart-line" aria-hidden="true"></i></div>
-        </section>
-
-        <div class="workspace-grid">
-            <section class="main-column">
-                <section class="panel register-panel">
-                    <div class="panel-heading">
-                        <div class="heading-icon"><i class="fas fa-user-plus" aria-hidden="true"></i></div>
-                        <div><p class="eyebrow">NEW ACCOUNT</p><h2>Register a customer</h2></div>
-                    </div>
-                    <div class="registration-tools">
-                        <div>
-                            <strong><i class="fas fa-id-card" aria-hidden="true"></i> Scan and autofill a South African ID</strong>
-                            <p>Take a clear, well-lit photo of the front of the ID. We’ll read the name, 13-digit number, date of birth and gender in this browser. Check every result before saving.</p>
-                        </div>
-                        <label class="button button-quiet scan-button" for="idImage"><i class="fas fa-camera" aria-hidden="true"></i> Scan and autofill</label>
-                        <input class="visually-hidden" id="idImage" type="file" accept="image/*" capture="environment">
-                    </div>
-                    <p id="scanStatus" class="scan-status" role="status" aria-live="polite">Or enter the details below.</p>
-                    <div id="idPhotoPreview" class="id-photo-preview hidden" aria-live="polite"><i class="fas fa-image" aria-hidden="true"></i><span>ID photo ready to save with this customer</span><button id="removeIdPhoto" class="button button-quiet" type="button" aria-label="Remove selected ID photo" title="Remove selected ID photo"><i class="fas fa-times" aria-hidden="true"></i></button></div>
-                    <form id="registrationForm" autocomplete="on">
-                        <div class="form-grid">
-                            <label class="field field-wide">Full name<input id="customerName" name="name" type="text" autocomplete="name" required placeholder="As shown on the ID"></label>
-                            <label class="field">Document type<select id="customerIdType" name="idType" required><option value="sa-id">South African ID</option><option value="passport">Passport</option></select></label>
-                            <label class="field"><span id="identityNumberLabel">South African ID number</span><input id="customerIdNumber" name="idNumber" type="text" inputmode="numeric" autocomplete="off" required aria-describedby="identityStatus" placeholder="13-digit ID number"><span id="identityStatus" class="identity-status" aria-live="polite"></span></label>
-                            <label class="field">Date of birth<input id="customerDateOfBirth" name="dateOfBirth" type="date" autocomplete="bday"></label>
-                            <label class="field">Gender<select id="customerGender" name="gender"><option value="">Not recorded</option><option value="female">Female</option><option value="male">Male</option></select></label>
-                            <label class="field">Phone number<input id="customerPhone" name="phone" type="tel" autocomplete="tel" placeholder="e.g. +27 82 000 0000"></label>
-                            <label class="field field-wide">Email address<input id="customerEmail" name="email" type="email" autocomplete="email" required placeholder="name@example.com"></label>
-                            <div class="email-verification field-wide">
-                                <div class="email-verification-actions">
-                                    <label class="field" for="customerEmailOtp">Email verification code<input id="customerEmailOtp" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="6-digit code" aria-describedby="customerEmailVerificationStatus"></label>
-                                    <button id="sendCustomerEmailCode" class="button button-quiet" type="button"><i class="fas fa-paper-plane" aria-hidden="true"></i> Send code</button>
-                                    <button id="verifyCustomerEmailCode" class="button button-dark" type="button"><i class="fas fa-shield-check" aria-hidden="true"></i> Verify</button>
-                                </div>
-                                <p id="customerEmailVerificationStatus" class="email-verification-status" role="status" aria-live="polite">Verify the customer's email before creating the credit account.</p>
-                            </div>
-                            <label class="field">Address<input id="customerAddress" name="address" type="text" autocomplete="street-address" placeholder="Optional"></label>
-                        </div>
-                        <div class="form-actions">
-                            <button class="button button-dark" type="submit"><i class="fas fa-user-check" aria-hidden="true"></i> Add credit customer</button>
-                            <button class="button button-quiet" id="clearRegistration" type="reset" aria-label="Clear registration form"><i class="fas fa-rotate-left" aria-hidden="true"></i></button>
-                        </div>
-                    </form>
-                </section>
-
-                <section class="panel ledger-panel">
-                    <div class="panel-heading">
-                        <div class="heading-icon ledger-icon"><i class="fas fa-book-open" aria-hidden="true"></i></div>
-                        <div><p class="eyebrow">ACCOUNT LEDGER</p><h2>Post account activity</h2></div>
-                    </div>
-                    <label class="field">Customer account<select id="ledgerCustomer" aria-label="Select a customer account"><option value="">Select a customer</option></select></label>
-                    <div class="activity-grid">
-                        <form id="creditForm" class="activity-form">
-                            <h3><i class="fas fa-cart-plus" aria-hidden="true"></i> Add credit</h3>
-                            <p id="creditStockStatus" class="activity-note" role="status" aria-live="polite">Use Ordering to select items already in stock.</p>
-                            <button id="openOrderingCatalog" class="button button-quiet credit-catalog-action" type="button"><i class="fas fa-magnifying-glass" aria-hidden="true"></i> Select stock items</button>
-                            <div id="creditCart" class="credit-cart"></div>
-                            <div class="calculation"><span>Items subtotal</span><strong id="creditSubtotalPreview">R 0.00</strong></div>
-                            <div class="calculation"><span>Service fee <b>10%</b></span><strong id="feePreview">R 0.00</strong></div>
-                            <div class="calculation calculation-total"><span>Added to balance</span><strong id="creditTotalPreview">R 0.00</strong></div>
-                            <button class="button button-accent" type="submit"><i class="fas fa-floppy-disk" aria-hidden="true"></i> Save credit</button>
-                        </form>
-                        <form id="paymentForm" class="activity-form payment-form">
-                            <h3><i class="fas fa-money-bill-wave" aria-hidden="true"></i> Record payment</h3>
-                            <label class="field">Payment amount<input id="paymentAmount" type="number" min="0.01" step="0.01" inputmode="decimal" required placeholder="0.00"></label>
-                            <p class="activity-note">Payments reduce the selected customer's outstanding balance.</p>
-                            <button class="button button-quiet" type="submit"><i class="fas fa-check" aria-hidden="true"></i> Record payment</button>
-                        </form>
-                    </div>
-                    <p id="ledgerStatus" class="ledger-status" role="status" aria-live="polite"></p>
-                </section>
-
-                <section class="panel customers-panel">
-                    <div class="list-heading">
-                        <div><p class="eyebrow">CUSTOMER DIRECTORY</p><h2>Accounts</h2></div>
-                        <label class="search-box"><i class="fas fa-search" aria-hidden="true"></i><input id="customerSearch" type="search" placeholder="Search name, ID or phone" aria-label="Search customers"></label>
-                    </div>
-                    <div id="customerList" class="customer-list" aria-live="polite"></div>
-                </section>
+        <section id="view-home" class="credit-view">
+            <section class="page-heading">
+                <div>
+                    <p class="eyebrow">ACCOUNT LEDGER</p>
+                    <h1>Post account activity</h1>
+                    <p class="heading-copy">Select a customer, scan or search stock items, then post credit or payment.</p>
+                </div>
+                <span class="fee-policy"><i class="fas fa-percent" aria-hidden="true"></i> 10% service fee on new credit</span>
             </section>
 
-            <aside class="detail-column" aria-label="Selected customer account">
-                <section class="panel account-panel" id="accountDetail">
-                    <div class="empty-detail"><span><i class="fas fa-address-card" aria-hidden="true"></i></span><h2>Select an account</h2><p>Choose a customer to review their balance and recent activity.</p></div>
-                </section>
-                <p class="privacy-note"><i class="fas fa-lock" aria-hidden="true"></i> Customer records and attached ID photos are stored in this browser and shared with Easy Receipt on this device.</p>
-            </aside>
-        </div>
+            <section class="panel ledger-panel">
+                <label class="field">Customer account<select id="ledgerCustomer" aria-label="Select a customer account"><option value="">Select a customer</option></select></label>
+                <div class="scanner-panel">
+                    <div class="scanner-controls">
+                        <label class="scan-input-wrap" for="creditBarcodeInput">
+                            <i class="fas fa-barcode" aria-hidden="true"></i>
+                            <input id="creditBarcodeInput" type="text" placeholder="Scan or type a barcode" autocomplete="off">
+                        </label>
+                        <button id="addCreditBarcode" class="button button-accent" type="button"><i class="fas fa-plus" aria-hidden="true"></i> Add</button>
+                        <button id="toggleCreditCamera" class="button button-quiet icon-button" type="button" aria-label="Start camera scanner" title="Camera scanner"><i class="fas fa-camera" aria-hidden="true"></i></button>
+                    </div>
+                    <div id="creditCameraPanel" class="camera-panel hidden">
+                        <video id="creditCameraPreview" autoplay playsinline muted></video>
+                        <div id="creditCameraQtyPanel" class="camera-qty-panel hidden">
+                            <span id="creditCameraQtyLabel"></span>
+                            <label class="field">Quantity<input id="creditCameraQtyInput" type="number" min="1" step="1" value="1"></label>
+                            <div class="camera-qty-actions">
+                                <button id="creditCameraQtyConfirm" class="button button-accent" type="button">Add item</button>
+                                <button id="creditCameraQtySkip" class="button button-quiet" type="button">Skip</button>
+                            </div>
+                        </div>
+                        <button id="stopCreditCamera" class="button button-quiet" type="button"><i class="fas fa-stop" aria-hidden="true"></i> Stop camera</button>
+                    </div>
+                    <p id="creditScanStatus" class="scan-status" role="status" aria-live="polite">Scan a barcode, use the camera, or search stock items below.</p>
+                    <button id="openOrderingCatalog" class="button button-quiet credit-catalog-action" type="button"><i class="fas fa-magnifying-glass" aria-hidden="true"></i> Search stock items</button>
+                </div>
+                <div class="activity-grid">
+                    <form id="creditForm" class="activity-form">
+                        <h3><i class="fas fa-cart-plus" aria-hidden="true"></i> Add credit</h3>
+                        <p id="creditStockStatus" class="activity-note" role="status" aria-live="polite">Scan, search or select items already in stock.</p>
+                        <div id="creditCart" class="credit-cart"></div>
+                        <div class="calculation"><span>Items subtotal</span><strong id="creditSubtotalPreview">R 0.00</strong></div>
+                        <div class="calculation"><span>Service fee <b>10%</b></span><strong id="feePreview">R 0.00</strong></div>
+                        <div class="calculation calculation-total"><span>Added to balance</span><strong id="creditTotalPreview">R 0.00</strong></div>
+                        <button class="button button-accent" type="submit"><i class="fas fa-floppy-disk" aria-hidden="true"></i> Save credit</button>
+                    </form>
+                    <form id="paymentForm" class="activity-form payment-form">
+                        <h3><i class="fas fa-money-bill-wave" aria-hidden="true"></i> Record payment</h3>
+                        <label class="field">Payment amount<input id="paymentAmount" type="number" min="0.01" step="0.01" inputmode="decimal" required placeholder="0.00"></label>
+                        <p class="activity-note">Payments reduce the selected customer's outstanding balance.</p>
+                        <button class="button button-quiet" type="submit"><i class="fas fa-check" aria-hidden="true"></i> Record payment</button>
+                    </form>
+                </div>
+                <p id="ledgerStatus" class="ledger-status" role="status" aria-live="polite"></p>
+            </section>
+        </section>
+
+        <section id="view-new-customer" class="credit-view hidden">
+            <section class="page-heading">
+                <div>
+                    <p class="eyebrow">NEW ACCOUNT</p>
+                    <h1>Register a customer</h1>
+                    <p class="heading-copy">Scan an ID to autofill, or enter the details manually.</p>
+                </div>
+            </section>
+            <section class="panel register-panel">
+                <div class="registration-tools">
+                    <div>
+                        <strong><i class="fas fa-id-card" aria-hidden="true"></i> Scan and autofill a South African ID</strong>
+                        <p>Take a clear, well-lit photo of the front of the ID. We’ll read the name, 13-digit number, date of birth and gender in this browser. Check every result before saving.</p>
+                    </div>
+                    <label class="button button-quiet scan-button" for="idImage"><i class="fas fa-camera" aria-hidden="true"></i> Scan and autofill</label>
+                    <input class="visually-hidden" id="idImage" type="file" accept="image/*" capture="environment">
+                </div>
+                <p id="scanStatus" class="scan-status" role="status" aria-live="polite">Or enter the details below.</p>
+                <div id="idPhotoPreview" class="id-photo-preview hidden" aria-live="polite"><i class="fas fa-image" aria-hidden="true"></i><span>ID photo ready to save with this customer</span><button id="removeIdPhoto" class="button button-quiet" type="button" aria-label="Remove selected ID photo" title="Remove selected ID photo"><i class="fas fa-times" aria-hidden="true"></i></button></div>
+                <form id="registrationForm" autocomplete="on">
+                    <div class="form-grid">
+                        <label class="field field-wide">Full name<input id="customerName" name="name" type="text" autocomplete="name" required placeholder="As shown on the ID"></label>
+                        <label class="field">Document type<select id="customerIdType" name="idType" required><option value="sa-id">South African ID</option><option value="passport">Passport</option></select></label>
+                        <label class="field"><span id="identityNumberLabel">South African ID number</span><input id="customerIdNumber" name="idNumber" type="text" inputmode="numeric" autocomplete="off" required aria-describedby="identityStatus" placeholder="13-digit ID number"><span id="identityStatus" class="identity-status" aria-live="polite"></span></label>
+                        <label class="field">Date of birth<input id="customerDateOfBirth" name="dateOfBirth" type="date" autocomplete="bday"></label>
+                        <label class="field">Gender<select id="customerGender" name="gender"><option value="">Not recorded</option><option value="female">Female</option><option value="male">Male</option></select></label>
+                        <label class="field">Phone number<input id="customerPhone" name="phone" type="tel" autocomplete="tel" placeholder="e.g. +27 82 000 0000"></label>
+                        <label class="field field-wide">Email address<input id="customerEmail" name="email" type="email" autocomplete="email" required placeholder="name@example.com"></label>
+                        <div class="email-verification field-wide">
+                            <div class="email-verification-actions">
+                                <label class="field" for="customerEmailOtp">Email verification code<input id="customerEmailOtp" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="6-digit code" aria-describedby="customerEmailVerificationStatus"></label>
+                                <button id="sendCustomerEmailCode" class="button button-quiet" type="button"><i class="fas fa-paper-plane" aria-hidden="true"></i> Send code</button>
+                                <button id="verifyCustomerEmailCode" class="button button-dark" type="button"><i class="fas fa-shield-check" aria-hidden="true"></i> Verify</button>
+                            </div>
+                            <p id="customerEmailVerificationStatus" class="email-verification-status" role="status" aria-live="polite">Verify the customer's email before creating the credit account.</p>
+                        </div>
+                        <label class="field">Address<input id="customerAddress" name="address" type="text" autocomplete="street-address" placeholder="Optional"></label>
+                    </div>
+                    <div class="form-actions">
+                        <button class="button button-dark" type="submit"><i class="fas fa-user-check" aria-hidden="true"></i> Add credit customer</button>
+                        <button class="button button-quiet" id="clearRegistration" type="reset" aria-label="Clear registration form"><i class="fas fa-rotate-left" aria-hidden="true"></i></button>
+                    </div>
+                </form>
+            </section>
+        </section>
+
+        <section id="view-accounts" class="credit-view hidden">
+            <section class="page-heading">
+                <div>
+                    <p class="eyebrow">CUSTOMER ACCOUNTS</p>
+                    <h1>Credit accounts</h1>
+                    <p class="heading-copy">Browse accounts and open a profile for balance and activity.</p>
+                </div>
+            </section>
+            <section class="metrics" aria-label="Credit account summary">
+                <div class="metric"><span>Credit accounts</span><strong id="accountCount">0</strong><i class="fas fa-users" aria-hidden="true"></i></div>
+                <div class="metric metric-due"><span>Total outstanding</span><strong id="outstandingTotal">R 0.00</strong><i class="fas fa-file-invoice-dollar" aria-hidden="true"></i></div>
+                <div class="metric metric-fee"><span>Fees added</span><strong id="feesTotal">R 0.00</strong><i class="fas fa-chart-line" aria-hidden="true"></i></div>
+            </section>
+            <section class="panel customers-panel">
+                <div class="list-heading">
+                    <div><p class="eyebrow">CUSTOMER DIRECTORY</p><h2>Accounts</h2></div>
+                    <label class="search-box"><i class="fas fa-search" aria-hidden="true"></i><input id="customerSearch" type="search" placeholder="Search name, ID or phone" aria-label="Search customers"></label>
+                </div>
+                <div id="customerList" class="customer-list" aria-live="polite"></div>
+            </section>
+        </section>
+
+        <section id="view-profile" class="credit-view hidden">
+            <section class="page-heading">
+                <div>
+                    <p class="eyebrow">CUSTOMER PROFILE</p>
+                    <h1>Account detail</h1>
+                    <p class="heading-copy">Balance, contact details and recent activity for the selected account.</p>
+                </div>
+            </section>
+            <section class="panel account-panel" id="accountDetail">
+                <div class="empty-detail"><span><i class="fas fa-address-card" aria-hidden="true"></i></span><h2>Select an account</h2><p>Choose a customer to review their balance and recent activity.</p></div>
+            </section>
+            <p class="privacy-note"><i class="fas fa-lock" aria-hidden="true"></i> Customer records and attached ID photos are stored in this browser and shared with Easy Receipt on this device.</p>
+        </section>
     </main>
+
+    <nav class="bottom-nav" aria-label="Credit desk sections">
+        <button type="button" class="bottom-nav-button active" data-view="home" aria-label="Home"><i class="fas fa-barcode" aria-hidden="true"></i><span>Home</span></button>
+        <button type="button" class="bottom-nav-button" data-view="new-customer" aria-label="New customers"><i class="fas fa-user-plus" aria-hidden="true"></i><span>New customers</span></button>
+        <button type="button" class="bottom-nav-button" data-view="accounts" aria-label="Credit accounts"><i class="fas fa-users" aria-hidden="true"></i><span>Credit accounts</span></button>
+        <button type="button" class="bottom-nav-button" data-view="profile" aria-label="Customer profile"><i class="fas fa-address-card" aria-hidden="true"></i><span>Customer profile</span></button>
+    </nav>
+
     <div id="orderingCatalogModal" class="ordering-modal hidden" aria-hidden="true">
         <div class="ordering-backdrop" data-close-ordering></div>
         <section class="ordering-dialog" role="dialog" aria-modal="true" aria-labelledby="orderingDialogTitle" tabindex="-1">

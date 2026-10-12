@@ -3,13 +3,19 @@
 // ===============================================================
 //
 // Collection: users/{uid}/appData
-// Document ID: one of the nine allowlisted business keys or its chunk ID
+// Document ID: one of the ten allowlisted business keys or its chunk ID
 // Fields:
 //   - value: string (required, <= 200,000 characters), JSON or app setting
 //
 // Document: users/{uid}/syncMeta/state
 // Fields:
 //   - initialized: bool (required), set when the first device seeds the account
+//
+//
+// Document: staff/{cashierUid}  (owner-managed cashier accounts)
+// Fields: ownerUid, name, email, active (required); createdAt (optional)
+//   - Active cashiers may read the owner's catalog keys (get only).
+//   - The owner may read the cashier's p3_pos_snapshots (sales).
 //
 // ===============================================================
 
@@ -21,7 +27,47 @@ service cloud.firestore {
     }
 
     function isValidBusinessKey(key) {
-      return key.matches('^(p3_active_cart|p3_auto_prices|p3_box_barcodes|p3_pos_drafts|p3_pos_snapshots|p3_saved_customers|p3_saved_stores|p3_stock_audit|p3_stock_items)(__chunk_[0-9])?$');
+      return key.matches('^(p3_active_cart|p3_auto_prices|p3_box_barcodes|p3_pos_drafts|p3_pos_deleted_drafts|p3_pos_snapshots|p3_saved_customers|p3_saved_stores|p3_stock_audit|p3_stock_items)(__chunk_[0-9])?$');
+    }
+
+    function isCatalogKey(key) {
+      return key.matches('^(p3_auto_prices|p3_box_barcodes|p3_saved_customers|p3_saved_stores|p3_stock_items)(__chunk_[0-9])?$');
+    }
+
+    function isSalesKey(key) {
+      return key.matches('^p3_pos_snapshots(__chunk_[0-9])?$');
+    }
+
+    function staffPath(uid) {
+      return /databases/$(database)/documents/staff/$(uid);
+    }
+
+    function hasStaffRecord(uid) {
+      return exists(staffPath(uid));
+    }
+
+    function isActiveStaffOf(ownerUid) {
+      return request.auth != null
+        && hasStaffRecord(request.auth.uid)
+        && get(staffPath(request.auth.uid)).data.ownerUid == ownerUid
+        && get(staffPath(request.auth.uid)).data.active == true;
+    }
+
+    function isOwnerOfStaff(staffUid) {
+      return request.auth != null
+        && hasStaffRecord(staffUid)
+        && get(staffPath(staffUid)).data.ownerUid == request.auth.uid;
+    }
+
+    function validStaff() {
+      let data = request.resource.data;
+      return data.keys().hasOnly(['ownerUid', 'name', 'email', 'active', 'createdAt'])
+        && data.keys().hasAll(['ownerUid', 'name', 'email', 'active'])
+        && data.ownerUid is string
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 80
+        && data.email is string && data.email.size() <= 254
+        && data.active is bool
+        && (!('createdAt' in data) || data.createdAt is string);
     }
 
     function validBusinessData(key) {
@@ -40,7 +86,10 @@ service cloud.firestore {
     }
 
     match /users/{uid}/appData/{key} {
-      allow read: if isOwner(uid);
+      allow get: if isOwner(uid)
+        || (isCatalogKey(key) && isActiveStaffOf(uid))
+        || (isSalesKey(key) && isOwnerOfStaff(uid));
+      allow list: if isOwner(uid);
       allow create, update: if isOwner(uid) && validBusinessData(key);
       allow delete: if isOwner(uid) && isValidBusinessKey(key);
     }
@@ -49,6 +98,24 @@ service cloud.firestore {
       allow read: if isOwner(uid);
       allow create, update: if isOwner(uid) && validSyncState();
       allow delete: if false;
+    }
+
+    match /staff/{staffUid} {
+      allow get: if request.auth != null
+        && (request.auth.uid == staffUid
+          || (resource != null && resource.data.ownerUid == request.auth.uid));
+      allow list: if request.auth != null && resource.data.ownerUid == request.auth.uid;
+      allow create: if request.auth != null
+        && validStaff()
+        && request.resource.data.ownerUid == request.auth.uid
+        && staffUid != request.auth.uid
+        && !hasStaffRecord(request.auth.uid)
+        && !exists(/databases/$(database)/documents/users/$(staffUid)/syncMeta/state);
+      allow update: if request.auth != null
+        && resource.data.ownerUid == request.auth.uid
+        && validStaff()
+        && request.resource.data.ownerUid == resource.data.ownerUid;
+      allow delete: if request.auth != null && resource.data.ownerUid == request.auth.uid;
     }
 
     match /{document=**} {

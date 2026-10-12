@@ -164,13 +164,42 @@
         });
     </script>
     <script type="module">
-        import { auth } from './firebase-config.js';
+        import { auth, db } from './firebase-config.js';
         import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js';
+        import { doc, getDoc } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js';
 
         const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwxD52Ibd3FcOREtqmCgPgoNcRmKzDlKQVBui9Ea0nRl75MEihx_Fwfvm8dpG_wn_tCtg/exec';
         let loginAttemptInProgress = false;
-        onAuthStateChanged(auth, user => {
+
+        async function getActiveStaff(user) {
+            try {
+                const snapshot = await getDoc(doc(db, 'staff', user.uid));
+                return snapshot.exists() && snapshot.data().active === true ? snapshot.data() : null;
+            } catch (error) {
+                return null;
+            }
+        }
+
+        const cashierParams = new URLSearchParams(window.location.search);
+        if (cashierParams.get('cashier')) {
+            document.querySelector('input[name="username"]').value = cashierParams.get('cashier');
+            document.querySelector('.login-form h2').textContent = 'Cashier login';
+            const business = cashierParams.get('business');
+            if (business) document.querySelector('.login-form h1').textContent = business;
+            document.querySelector('.switch-link').style.display = 'none';
+            document.querySelector('input[name="password"]').focus();
+        }
+
+        onAuthStateChanged(auth, async user => {
             if (loginAttemptInProgress) return;
+            if (user) {
+                const staff = await getActiveStaff(user);
+                if (loginAttemptInProgress) return;
+                if (staff) {
+                    window.location.href = 'sales.html';
+                    return;
+                }
+            }
             if (user?.emailVerified) {
                 window.location.href = '../index.html';
                 return;
@@ -198,6 +227,18 @@
         async function signIn(email, password) {
             try {
                 var credential = await signInWithEmailAndPassword(auth, email, password);
+                var staffRecord = await getActiveStaff(credential.user);
+                if (staffRecord) {
+                    localStorage.setItem('isLoggedIn', 'true');
+                    localStorage.setItem('p3_user_profile', JSON.stringify({
+                        name: staffRecord.name || credential.user.displayName || credential.user.email,
+                        email: credential.user.email,
+                        provider: 'email',
+                        role: 'Cashier'
+                    }));
+                    window.location.href = 'sales.html';
+                    return;
+                }
                 if (!credential.user.emailVerified) {
                     await signOut(auth);
                     localStorage.setItem('pendingVerificationEmail', credential.user.email);

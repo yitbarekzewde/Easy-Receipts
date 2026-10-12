@@ -25,15 +25,18 @@
     let cart = readArray('p3_active_cart').filter(item => item.name && item.name !== 'Sample Product');
     let products = [];
     let cameraStream = null;
+    let detector = null;
+    let cameraPendingProduct = null;
+    let cameraPendingDefaultQty = 1;
     let currentReceipt = null;
 
     const elements = Object.fromEntries([
-        'posStore', 'posCustomer', 'customerBalance', 'customerForm', 'newCustomerName', 'newCustomerPhone', 'newCustomerEmail',
+        'posStore', 'posCustomer', 'customerBalance', 'customerForm', 'newCustomerName', 'newCustomerIdType', 'newCustomerIdNumber', 'newCustomerIdStatus', 'newCustomerPhone', 'newCustomerEmail',
         'showCustomerForm', 'saveCustomer', 'posBarcodeInput', 'addBarcode', 'toggleCamera', 'stopCamera', 'cameraPanel',
         'cameraPreview', 'scanStatus', 'productSearch', 'productCount', 'productGrid', 'cartCount', 'cartLines', 'emptyCart',
-        'clearCart', 'discountPercent', 'taxPercent', 'subtotalValue', 'discountRow', 'discountValue', 'taxRow', 'taxValue',
+        'clearCart', 'recentPanel', 'showRecentSales', 'sheetBackdrop',
         'totalValue', 'cashPaid', 'onlinePaid', 'balanceLabel', 'balanceValue', 'completeSale', 'printReceipt', 'checkoutStatus',
-        'recentSales', 'printReceiptContent'
+        'recentSales', 'printReceiptContent', 'cameraQtyPanel', 'cameraQtyLabel', 'cameraQtyInput', 'cameraQtyConfirm', 'cameraQtySkip'
     ].map(id => [id, document.getElementById(id)]));
 
     function priceFor(name, fallback = 0) {
@@ -158,23 +161,14 @@
 
     function getTotals() {
         const subtotal = cart.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.qty || 0), 0);
-        const discountRate = Math.min(100, Math.max(0, Number(elements.discountPercent.value) || 0)) / 100;
-        const taxRate = Math.min(100, Math.max(0, Number(elements.taxPercent.value) || 0)) / 100;
-        const discount = subtotal * discountRate;
-        const tax = (subtotal - discount) * taxRate;
-        const total = subtotal - discount + tax;
+        const total = subtotal;
         const cash = Math.max(0, Number(elements.cashPaid.value) || 0);
         const online = Math.max(0, Number(elements.onlinePaid.value) || 0);
-        return { subtotal, discount, tax, total, cash, online, paid: cash + online, balance: cash + online - total };
+        return { subtotal, total, cash, online, paid: cash + online, balance: cash + online - total };
     }
 
     function updateTotals() {
         const totals = getTotals();
-        elements.subtotalValue.textContent = money(totals.subtotal);
-        elements.discountValue.textContent = `- ${money(totals.discount)}`;
-        elements.taxValue.textContent = money(totals.tax);
-        elements.discountRow.classList.toggle('hidden', totals.discount <= 0);
-        elements.taxRow.classList.toggle('hidden', totals.tax <= 0);
         elements.totalValue.textContent = money(totals.total);
         const isOverpaid = totals.balance > 0.005;
         elements.balanceLabel.textContent = isOverpaid ? 'Change due' : 'Remaining';
@@ -202,7 +196,7 @@
         setScanMessage(`Added ${quantity} x ${product.name}.`, 'success');
     }
 
-    function scanBarcode(value) {
+    function scanBarcode(value, fromCamera = false) {
         const code = String(value || '').trim().toLowerCase();
         if (!code) {
             setScanMessage('Scan or enter a barcode first.', 'error');
@@ -217,9 +211,45 @@
             return;
         }
         const isBox = Boolean(product.caseBarcode && product.caseBarcode.toLowerCase() === code);
+        if (fromCamera) {
+            promptCameraQuantity(product, isBox ? product.unitsPerBox : 1);
+            return;
+        }
         addProduct(product, isBox ? product.unitsPerBox : 1);
         elements.posBarcodeInput.value = '';
         elements.posBarcodeInput.focus();
+    }
+
+    function promptCameraQuantity(product, defaultQty) {
+        cameraPendingProduct = product;
+        cameraPendingDefaultQty = Math.max(1, Number(defaultQty) || 1);
+        elements.cameraQtyLabel.textContent = product.name;
+        elements.cameraQtyInput.value = cameraPendingDefaultQty;
+        elements.cameraQtyPanel.classList.remove('hidden');
+        setScanMessage(`Found ${product.name}. Enter the quantity.`);
+        elements.cameraQtyInput.focus();
+        elements.cameraQtyInput.select();
+    }
+
+    function resumeCameraScan() {
+        cameraPendingProduct = null;
+        elements.cameraQtyPanel.classList.add('hidden');
+        if (cameraStream) {
+            setScanMessage('Ready for the next barcode.');
+            startDetectLoop();
+        }
+    }
+
+    function confirmCameraQuantity() {
+        if (!cameraPendingProduct) return;
+        const quantity = Number(elements.cameraQtyInput.value);
+        if (!Number.isInteger(quantity) || quantity < 1) {
+            setScanMessage('Enter a whole quantity of 1 or more.', 'error');
+            elements.cameraQtyInput.focus();
+            return;
+        }
+        addProduct(cameraPendingProduct, quantity);
+        resumeCameraScan();
     }
 
     function updateCartLine(index, action) {
@@ -234,9 +264,54 @@
         renderCart();
     }
 
+    function openSheet(sheet) {
+        [elements.customerForm, elements.recentPanel].forEach(panel => panel.classList.toggle('hidden', panel !== sheet));
+        elements.sheetBackdrop.classList.toggle('hidden', !sheet);
+    }
+
     function showCustomerForm(show) {
-        elements.customerForm.classList.toggle('hidden', !show);
+        openSheet(show ? elements.customerForm : null);
         if (show) elements.newCustomerName.focus();
+    }
+
+    function toggleRecentSales() {
+        openSheet(elements.recentPanel.classList.contains('hidden') ? elements.recentPanel : null);
+    }
+
+    function normalizeId(value) {
+        return String(value || '').replace(/\s/g, '').trim().toUpperCase();
+    }
+
+    function validateIdentity(type, value) {
+        const identity = normalizeId(value);
+        if (!identity) return 'An ID number or passport number is required.';
+        if (type === 'passport') {
+            return /^[A-Z0-9]{5,20}$/.test(identity) ? '' : 'Enter a passport number using 5 to 20 letters or numbers.';
+        }
+        if (!/^\d{13}$/.test(identity)) return 'A South African ID must contain exactly 13 digits.';
+        const yearPart = Number(identity.slice(0, 2));
+        const year = yearPart <= new Date().getFullYear() % 100 ? 2000 + yearPart : 1900 + yearPart;
+        const month = Number(identity.slice(2, 4));
+        const day = Number(identity.slice(4, 6));
+        const birthDate = new Date(year, month - 1, day);
+        if (birthDate.getFullYear() !== year || birthDate.getMonth() !== month - 1 || birthDate.getDate() !== day || birthDate > new Date()) {
+            return 'The birth date in this South African ID is not valid.';
+        }
+        if (!['0', '1'].includes(identity[10])) return 'The citizenship digit in this South African ID is not valid.';
+        const digits = [...identity].map(Number);
+        const oddSum = digits.slice(0, 12).filter((_, index) => index % 2 === 0).reduce((sum, digit) => sum + digit, 0);
+        const doubled = digits.slice(0, 12).filter((_, index) => index % 2 === 1).join('') * 2;
+        const evenSum = String(doubled).split('').reduce((sum, digit) => sum + Number(digit), 0);
+        return (10 - ((oddSum + evenSum) % 10)) % 10 === digits[12] ? '' : 'The South African ID checksum is invalid. Check the number against the document.';
+    }
+
+    function updateNewCustomerIdFeedback() {
+        const type = elements.newCustomerIdType.value;
+        const value = elements.newCustomerIdNumber.value;
+        const message = validateIdentity(type, value);
+        elements.newCustomerIdStatus.textContent = value.trim() ? (message || 'Identity number looks valid.') : '';
+        elements.newCustomerIdStatus.dataset.state = value.trim() ? (message ? 'error' : 'success') : '';
+        return message;
     }
 
     function saveCustomer() {
@@ -245,15 +320,37 @@
             elements.newCustomerName.focus();
             return;
         }
+        const idType = elements.newCustomerIdType.value;
+        const idNumber = normalizeId(elements.newCustomerIdNumber.value);
+        const idError = validateIdentity(idType, idNumber);
+        if (idError) {
+            updateNewCustomerIdFeedback();
+            elements.newCustomerIdNumber.focus();
+            return;
+        }
         const existing = customers.find(customer => customer.name.toLowerCase() === name.toLowerCase());
+        const idOwner = customers.find(customer => normalizeId(customer.idNumber) === idNumber && (customer.idType || 'sa-id') === idType);
+        if (idOwner && idOwner !== existing) {
+            elements.newCustomerIdStatus.textContent = `This ID is already registered to ${idOwner.name}.`;
+            elements.newCustomerIdStatus.dataset.state = 'error';
+            elements.newCustomerIdNumber.focus();
+            return;
+        }
         let customer = existing;
         if (!customer) {
-            customer = { id: Date.now(), name, phone: elements.newCustomerPhone.value.trim(), email: elements.newCustomerEmail.value.trim(), due: 0, deposit: 0, history: [] };
+            customer = { id: Date.now(), name, idType, idNumber, phone: elements.newCustomerPhone.value.trim(), email: elements.newCustomerEmail.value.trim(), due: 0, deposit: 0, history: [] };
             customers.push(customer);
+            localStorage.setItem('p3_saved_customers', JSON.stringify(customers));
+        } else if (!existing.idNumber) {
+            existing.idType = idType;
+            existing.idNumber = idNumber;
             localStorage.setItem('p3_saved_customers', JSON.stringify(customers));
         }
         renderCustomers(customer.id);
         elements.newCustomerName.value = '';
+        elements.newCustomerIdNumber.value = '';
+        elements.newCustomerIdType.value = 'sa-id';
+        elements.newCustomerIdStatus.textContent = '';
         elements.newCustomerPhone.value = '';
         elements.newCustomerEmail.value = '';
         showCustomerForm(false);
@@ -318,9 +415,8 @@
             total: totals.total,
             cash: totals.cash,
             online: totals.online,
-            discount: totals.discount,
-            tax: totals.tax,
             cartSnapshot: items,
+            cashier: window.easyReceiptStaff?.name || '',
             image: ''
         };
 
@@ -338,8 +434,6 @@
         renderCart();
         elements.cashPaid.value = '';
         elements.onlinePaid.value = '';
-        elements.discountPercent.value = '0';
-        elements.taxPercent.value = '0';
         updateTotals();
         renderCustomers(customer.id);
         renderProducts();
@@ -353,9 +447,6 @@
         elements.printReceiptContent.innerHTML = `
             <div class="receipt-print-header"><h1>${escapeHtml(receipt.store)}</h1><p>Sales receipt</p><p>${escapeHtml(receipt.timestamp)}</p><p>Receipt #${escapeHtml(receipt.id)}</p><p>Customer: ${escapeHtml(receipt.client)}</p></div>
             <table class="receipt-print-table"><thead><tr><th>Item</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table>
-            <p>Subtotal: ${money(receipt.subtotal)}</p>
-            ${receipt.discount ? `<p>Discount: - ${money(receipt.discount)}</p>` : ''}
-            ${receipt.tax ? `<p>Tax: ${money(receipt.tax)}</p>` : ''}
             <div class="receipt-print-total"><span>Total</span><span>${money(receipt.total)}</span></div>
             <p>Paid: ${money(receipt.paid)}${receipt.change ? ` · Change: ${money(receipt.change)}` : ''}</p>
             ${receipt.due ? `<p>Amount due: ${money(receipt.due)}</p>` : ''}
@@ -441,33 +532,39 @@
             cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
             elements.cameraPreview.srcObject = cameraStream;
             elements.cameraPanel.classList.remove('hidden');
-            const detector = new BarcodeDetector({ formats: ['code_128', 'ean_13', 'qr_code', 'upc_a', 'code_39'] });
+            detector = new BarcodeDetector({ formats: ['code_128', 'ean_13', 'qr_code', 'upc_a', 'code_39'] });
             setScanMessage('Camera ready. Hold a barcode in view.');
-            const detect = async () => {
-                if (!cameraStream) return;
-                try {
-                    const matches = await detector.detect(elements.cameraPreview);
-                    if (matches.length) {
-                        const code = matches[0].rawValue;
-                        stopCamera();
-                        elements.posBarcodeInput.value = code;
-                        scanBarcode(code);
-                        return;
-                    }
-                } catch (error) {
-                    console.warn('Camera barcode scan failed:', error);
-                }
-                if (cameraStream) requestAnimationFrame(detect);
-            };
-            detect();
+            startDetectLoop();
         } catch (error) {
             setScanMessage('Camera access was blocked. Use a USB or Bluetooth barcode scanner.', 'error');
         }
     }
 
+    function startDetectLoop() {
+        const stream = cameraStream;
+        const detect = async () => {
+            if (!cameraStream || cameraStream !== stream || cameraPendingProduct) return;
+            try {
+                const matches = await detector.detect(elements.cameraPreview);
+                if (matches.length && cameraStream === stream) {
+                    elements.posBarcodeInput.value = matches[0].rawValue;
+                    scanBarcode(matches[0].rawValue, true);
+                    if (cameraPendingProduct) return;
+                    await new Promise(resolve => setTimeout(resolve, 1200));
+                }
+            } catch (error) {
+                console.warn('Camera barcode scan failed:', error);
+            }
+            if (cameraStream === stream && !cameraPendingProduct) requestAnimationFrame(detect);
+        };
+        detect();
+    }
+
     function stopCamera() {
         if (cameraStream) cameraStream.getTracks().forEach(track => track.stop());
         cameraStream = null;
+        cameraPendingProduct = null;
+        elements.cameraQtyPanel.classList.add('hidden');
         elements.cameraPreview.srcObject = null;
         elements.cameraPanel.classList.add('hidden');
     }
@@ -488,6 +585,12 @@
         elements.addBarcode.addEventListener('click', () => scanBarcode(elements.posBarcodeInput.value));
         elements.toggleCamera.addEventListener('click', startCamera);
         elements.stopCamera.addEventListener('click', stopCamera);
+        elements.cameraQtyConfirm.addEventListener('click', confirmCameraQuantity);
+        elements.cameraQtySkip.addEventListener('click', resumeCameraScan);
+        elements.cameraQtyInput.addEventListener('keydown', event => {
+            if (event.key === 'Enter') { event.preventDefault(); confirmCameraQuantity(); }
+            if (event.key === 'Escape') resumeCameraScan();
+        });
         elements.productSearch.addEventListener('input', renderProducts);
         elements.productGrid.addEventListener('click', event => {
             const button = event.target.closest('[data-product-id]');
@@ -504,9 +607,21 @@
             renderCart();
             setCheckoutMessage('Cart cleared.');
         });
-        [elements.discountPercent, elements.taxPercent, elements.cashPaid, elements.onlinePaid].forEach(input => input.addEventListener('input', updateTotals));
+        [elements.cashPaid, elements.onlinePaid].forEach(input => input.addEventListener('input', updateTotals));
         elements.posCustomer.addEventListener('change', renderCustomerBalance);
         elements.showCustomerForm.addEventListener('click', () => showCustomerForm(elements.customerForm.classList.contains('hidden')));
+        elements.showRecentSales.addEventListener('click', toggleRecentSales);
+        elements.newCustomerIdNumber.addEventListener('input', updateNewCustomerIdFeedback);
+        elements.newCustomerIdType.addEventListener('change', () => {
+            const isPassport = elements.newCustomerIdType.value === 'passport';
+            elements.newCustomerIdNumber.placeholder = isPassport ? 'Passport number' : '13-digit ID number';
+            elements.newCustomerIdNumber.inputMode = isPassport ? 'text' : 'numeric';
+            updateNewCustomerIdFeedback();
+        });
+        elements.sheetBackdrop.addEventListener('click', () => openSheet(null));
+        document.addEventListener('keydown', event => {
+            if (event.key === 'Escape' && !elements.sheetBackdrop.classList.contains('hidden')) openSheet(null);
+        });
         elements.saveCustomer.addEventListener('click', saveCustomer);
         elements.newCustomerName.addEventListener('keydown', event => {
             if (event.key === 'Enter') {

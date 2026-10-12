@@ -56,6 +56,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
     <script type="module" src="firebase-config.js"></script>
     <script type="module" src="public/cloud-sync.js"></script>
+    <script type="module" src="public/team.js"></script>
 </head>
 
 <body>
@@ -271,6 +272,8 @@
                         aria-selected="true" onclick="authManager.showAccountTab('profile')"><i class="fas fa-user"></i> Profile</button>
                     <button type="button" class="account-tab" id="account-tab-settings" role="tab"
                         aria-selected="false" onclick="authManager.showAccountTab('settings')"><i class="fas fa-sliders-h"></i> Preferences</button>
+                    <button type="button" class="account-tab" id="account-tab-team" role="tab"
+                        aria-selected="false" onclick="authManager.showAccountTab('team')"><i class="fas fa-user-tie"></i> Team</button>
                 </div>
 
                 <section id="account-profile-panel" class="account-panel" role="tabpanel" aria-labelledby="account-tab-profile">
@@ -313,6 +316,40 @@
                     <h4 class="section-subheading"><i class="fas fa-users action-icon-primary"></i> Customer accounts & transaction history</h4>
                     <div id="profileCustomerHistory"></div>
                     <button type="button" class="btn-danger account-signout" onclick="authManager.logoutUser()"><i class="fas fa-right-from-bracket"></i> Sign out</button>
+                </section>
+
+                <section id="account-team-panel" class="account-panel hidden" role="tabpanel" aria-labelledby="account-tab-team">
+                    <div class="account-settings-intro">
+                        <h4>Cashier accounts</h4>
+                        <p>Each cashier signs in with their own email and password and can only use the Point of Sale. Their sales stay separate under your business.</p>
+                    </div>
+                    <form id="teamForm" class="team-form" autocomplete="off">
+                        <div class="account-form-grid">
+                            <div>
+                                <label class="small-label" for="teamName">Cashier name</label>
+                                <input type="text" id="teamName" maxlength="80" required>
+                            </div>
+                            <div>
+                                <label class="small-label" for="teamEmail">Cashier email</label>
+                                <input type="email" id="teamEmail" autocomplete="off" required>
+                            </div>
+                            <div>
+                                <label class="small-label" for="teamPassword">Password (8+ characters)</label>
+                                <input type="password" id="teamPassword" minlength="8" autocomplete="new-password" required>
+                            </div>
+                            <div>
+                                <label class="small-label" for="teamPasswordConfirm">Confirm password</label>
+                                <input type="password" id="teamPasswordConfirm" minlength="8" autocomplete="new-password" required>
+                            </div>
+                        </div>
+                        <label class="team-check"><input type="checkbox" id="teamShareAfter"> Prepare a sign-in link to share after creating</label>
+                        <div class="account-actions">
+                            <button type="submit" id="teamSubmit" class="btn-primary"><i class="fas fa-user-plus"></i> Add cashier</button>
+                        </div>
+                    </form>
+                    <p id="teamStatus" class="account-status" aria-live="polite"></p>
+                    <hr class="section-divider">
+                    <div id="teamList" class="team-list"></div>
                 </section>
 
                 <section id="account-settings-panel" class="account-panel hidden" role="tabpanel" aria-labelledby="account-tab-settings">
@@ -649,6 +686,15 @@
                 <video id="stockScannerVideo" autoplay playsinline muted></video>
             </div>
 
+            <div id="stockScanQuantityPanel" class="stock-scan-quantity hidden">
+                <label for="stockScanQuantityInput"><strong id="stockScanQuantityItem"></strong> — Quantity</label>
+                <div class="stock-scan-quantity-controls">
+                    <input type="number" id="stockScanQuantityInput" min="1" step="1" value="1" inputmode="numeric">
+                    <button type="button" class="btn-primary" id="stockScanQuantityConfirm">Add &amp; Scan Next</button>
+                    <button type="button" class="btn-secondary" id="stockScanQuantityCancel">Skip &amp; Scan Next</button>
+                </div>
+            </div>
+
             <div class="stock-scanner-input-row">
                 <input type="text" id="stockScannerManualInput" placeholder="Type or scan a barcode and press Enter" autocomplete="off">
                 <button type="button" class="btn-primary" onclick="stockManager.lookupBarcodeFromInput()">Lookup</button>
@@ -753,7 +799,7 @@
 </div>
     <footer> 
         <div class="devloper-contact">
-            <h3 class="devloper-heading" style="display: flex;">Developer</h3>
+            <h3 class="devloper-heading" style="display: flex; text-align: center; ">Developer</h3>
             <a href="public/developer-contact.html" target="_blank" rel="noopener" title="Contact Developer" class="followus-link">Contact Developer</a>
 
         </div>
