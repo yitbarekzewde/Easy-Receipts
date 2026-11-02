@@ -82,6 +82,50 @@ input, textarea, select {
     animation: bulkDataBorderRotation 2s linear infinite;
 }
 
+.bulk-item-suggestions {
+    display: grid;
+    gap: 4px;
+    max-height: 190px;
+    overflow-y: auto;
+    margin: -4px 0 10px;
+    padding: 6px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #fff;
+}
+
+.bulk-item-suggestion {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    margin: 0;
+    padding: 8px 10px;
+    border-radius: 5px;
+    background: transparent;
+    color: #172722;
+    text-align: left;
+}
+
+.bulk-item-suggestion:hover,
+.bulk-item-suggestion:focus-visible {
+    background: #f1f5f9;
+}
+
+body[data-theme="dark"] .bulk-item-suggestions {
+    border-color: #475569;
+    background: #0f172a;
+}
+
+body[data-theme="dark"] .bulk-item-suggestion {
+    color: #e2e8f0;
+}
+
+body[data-theme="dark"] .bulk-item-suggestion:hover,
+body[data-theme="dark"] .bulk-item-suggestion:focus-visible {
+    background: #1e293b;
+}
+
     
 .qty-box { width: 65px; font-weight: bold; text-align: center; border: 1px solid var(--primary); }
  

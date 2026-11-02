@@ -103,7 +103,8 @@
         <div class="panel">
             <h2 class="section-heading">Stock Importer</h2>
             <h4 class="paragraph-small">Paste your stock list below, one item per line, and click "Process & Add" to add them to the cart. 👇</h4>
-            <textarea id="bulkData" placeholder="Huletts 1kg 4&#10;Powder soap 500g 2&#10;Polony 2.5kg 1" rows="3"></textarea>
+            <textarea id="bulkData" placeholder="Huletts 1kg 4&#10;Powder soap 500g 2&#10;Polony 2.5kg 1" rows="3" aria-label="Items to add, one item per line"></textarea>
+            <div id="bulkItemSuggestions" class="bulk-item-suggestions hidden" role="listbox" aria-label="Item suggestions"></div>
             <button class="btn-import" onclick="cartManager.importItems()">Process & Add</button>
             <div id="importStatus" class="status-message" aria-live="polite"></div>
 
@@ -355,7 +356,7 @@
                 <section id="account-settings-panel" class="account-panel hidden" role="tabpanel" aria-labelledby="account-tab-settings">
                     <div class="account-settings-intro">
                         <h4>Workspace preferences</h4>
-                        <p>Personalize this device. Your sales and receipt data are not changed by these options.</p>
+                        <p>Personalize this device and choose where your business data is stored.</p>
                     </div>
                     <div class="account-form-grid">
                         <div>
@@ -386,6 +387,14 @@
                             <label class="small-label" for="settingDefaultTax">Default tax (%)</label>
                             <input type="number" id="settingDefaultTax" min="0" max="100" step="0.01" inputmode="decimal">
                             <span class="account-field-hint">Prefills the tax field when the app starts; it won't change a receipt already being edited.</span>
+                        </div>
+                        <div>
+                            <label class="small-label" for="settingStorageMode">Business data storage</label>
+                            <select id="settingStorageMode">
+                                <option value="local">Local — this device only</option>
+                                <option value="cloud">Cloud — sync across devices</option>
+                            </select>
+                            <span class="account-field-hint">Cloud storage requires signing in. Your preference is saved on this device.</span>
                         </div>
                     </div>
                     <div class="account-actions">

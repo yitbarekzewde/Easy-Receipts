@@ -25,7 +25,7 @@ class AuthManager {
         this.settings = this.getDefaultSettings();
     }
     getStoredProfile() { return JSON.parse(localStorage.getItem('p3_user_profile') || 'null'); }
-    getDefaultSettings() { return { theme: 'system', accent: 'orange', density: 'comfortable', defaultTax: '0.00' }; }
+    getDefaultSettings() { return { theme: 'system', accent: 'orange', density: 'comfortable', defaultTax: '0.00', storageMode: 'cloud' }; }
     getStoredSettings() {
         const defaults = this.getDefaultSettings();
         try {
@@ -39,7 +39,8 @@ class AuthManager {
                 theme: themes.includes(saved.theme) ? saved.theme : defaults.theme,
                 accent: accents.includes(saved.accent) ? saved.accent : defaults.accent,
                 density: densities.includes(saved.density) ? saved.density : defaults.density,
-                defaultTax: Number.isFinite(tax) && tax >= 0 && tax <= 100 ? tax.toFixed(2) : defaults.defaultTax
+                defaultTax: Number.isFinite(tax) && tax >= 0 && tax <= 100 ? tax.toFixed(2) : defaults.defaultTax,
+                storageMode: ['local', 'cloud'].includes(saved.storageMode) ? saved.storageMode : defaults.storageMode
             };
         } catch (error) {
             console.error('Could not read saved workspace preferences.', error);
@@ -68,12 +69,14 @@ class AuthManager {
         const accent = document.getElementById('settingAccent');
         const density = document.getElementById('settingDensity');
         const tax = document.getElementById('settingDefaultTax');
+        const storageMode = document.getElementById('settingStorageMode');
         if (theme) theme.value = this.settings.theme;
         if (accent) accent.value = this.settings.accent;
         if (density) density.value = this.settings.density;
         if (tax) tax.value = this.settings.defaultTax;
+        if (storageMode) storageMode.value = this.settings.storageMode;
     }
-    saveSettings() {
+    async saveSettings() {
         const status = document.getElementById('settingsSaveStatus');
         const tax = Number(document.getElementById('settingDefaultTax')?.value);
         if (!Number.isFinite(tax) || tax < 0 || tax > 100) {
@@ -87,45 +90,72 @@ class AuthManager {
             theme: ['system', 'light', 'dark'].includes(document.getElementById('settingTheme')?.value) ? document.getElementById('settingTheme').value : 'system',
             accent: ['orange', 'blue', 'green', 'violet'].includes(document.getElementById('settingAccent')?.value) ? document.getElementById('settingAccent').value : 'orange',
             density: ['comfortable', 'compact'].includes(document.getElementById('settingDensity')?.value) ? document.getElementById('settingDensity').value : 'comfortable',
-            defaultTax: tax.toFixed(2)
+            defaultTax: tax.toFixed(2),
+            storageMode: ['local', 'cloud'].includes(document.getElementById('settingStorageMode')?.value) ? document.getElementById('settingStorageMode').value : 'cloud'
         };
+        const previousSettings = this.settings;
         try {
             localStorage.setItem('p3_app_settings', JSON.stringify(nextSettings));
+            const storageStatus = await window.easyReceiptSetStorageMode?.(nextSettings.storageMode);
+            this.settings = nextSettings;
+            this.applySettings(false);
+            if (status) {
+                status.textContent = storageStatus === 'sign-in-required'
+                    ? 'Preferences saved. Sign in to sync business data to the cloud.'
+                    : nextSettings.storageMode === 'local'
+                        ? 'Preferences saved. Business data will stay on this device.'
+                        : 'Preferences saved. Business data will sync to the cloud.';
+                status.classList.remove('account-status-error');
+            }
         } catch (error) {
             console.error('Could not save workspace preferences.', error);
+            try {
+                localStorage.setItem('p3_app_settings', JSON.stringify(previousSettings));
+            } catch (restoreError) {
+                console.error('Could not restore workspace preferences after a storage change failed.', restoreError);
+            }
+            this.settings = previousSettings;
+            this.applySettings(false);
+            this.renderSettings();
             if (status) {
-                status.textContent = 'Preferences could not be saved on this device.';
+                status.textContent = `Preferences could not be saved: ${error.message}`;
                 status.classList.add('account-status-error');
             }
             return;
-        }
-        this.settings = nextSettings;
-        this.applySettings(false);
-        if (status) {
-            status.textContent = 'Preferences saved on this device.';
-            status.classList.remove('account-status-error');
         }
     }
-    resetSettings() {
+    async resetSettings() {
         const defaults = this.getDefaultSettings();
+        const previousSettings = this.settings;
         try {
             localStorage.setItem('p3_app_settings', JSON.stringify(defaults));
-        } catch (error) {
-            console.error('Could not restore workspace preferences.', error);
+            const storageStatus = await window.easyReceiptSetStorageMode?.(defaults.storageMode);
+            this.settings = defaults;
+            this.applySettings(false);
+            this.renderSettings();
             const status = document.getElementById('settingsSaveStatus');
             if (status) {
-                status.textContent = 'Default preferences could not be saved on this device.';
+                status.textContent = storageStatus === 'sign-in-required'
+                    ? 'Default preferences restored. Sign in to sync business data to the cloud.'
+                    : 'Default preferences restored.';
+                status.classList.remove('account-status-error');
+            }
+        } catch (error) {
+            console.error('Could not restore workspace preferences.', error);
+            try {
+                localStorage.setItem('p3_app_settings', JSON.stringify(previousSettings));
+            } catch (restoreError) {
+                console.error('Could not restore workspace preferences after a storage change failed.', restoreError);
+            }
+            this.settings = previousSettings;
+            this.applySettings(false);
+            this.renderSettings();
+            const status = document.getElementById('settingsSaveStatus');
+            if (status) {
+                status.textContent = `Default preferences could not be restored: ${error.message}`;
                 status.classList.add('account-status-error');
             }
             return;
-        }
-        this.settings = defaults;
-        this.applySettings(false);
-        this.renderSettings();
-        const status = document.getElementById('settingsSaveStatus');
-        if (status) {
-            status.textContent = 'Default preferences restored.';
-            status.classList.remove('account-status-error');
         }
     }
     showAccountTab(tab) {
@@ -348,7 +378,14 @@ class StoreManager {
     }
     renderStoreSelect() {
         const select = document.getElementById('storeSelect');
+        const storedStore = localStorage.getItem('p3_active_store');
+        const selectedStore = this.savedStores.includes(storedStore)
+            ? storedStore
+            : this.savedStores.includes(select.value)
+                ? select.value
+                : this.savedStores[0];
         select.innerHTML = this.savedStores.map(s => `<option value="${s}">${s}</option>`).join('') + `<option value="ADD_NEW">➕ Add New Store...</option>`;
+        if (selectedStore) select.value = selectedStore;
         cartManager.updateUI();
     }
     handleStoreChange() {
@@ -361,6 +398,7 @@ class StoreManager {
                 this.renderStoreSelect(); select.value = clean;
             } else { this.renderStoreSelect(); }
         }
+        if (this.savedStores.includes(select.value)) localStorage.setItem('p3_active_store', select.value);
         cartManager.updateUI();
     }
 }
@@ -374,8 +412,24 @@ class CustomerManager {
 
     renderCustomerSuggestions() {
         const select = document.getElementById('customerSelect');
-        if (select) select.innerHTML = this.getSavedCustomers().map(c => `<option value="${c.id}">${c.name}</option>`).join('') + '<option value="ADD_NEW">+ Add New Customer...</option>';
-        this.renderSelectedCustomerBalance();
+        if (!select) return;
+        const customers = this.getSavedCustomers();
+        const selectedId = localStorage.getItem('p3_active_customer') || '';
+        select.innerHTML = '<option value="">Select Customer...</option>'
+            + customers.map(c => `<option value="${c.id}">${c.name}</option>`).join('')
+            + '<option value="ADD_NEW">+ Add New Customer...</option>';
+        select.value = customers.some(customer => String(customer.id) === selectedId) ? selectedId : '';
+        const selectedCustomer = customers.find(customer => String(customer.id) === select.value);
+        if (selectedCustomer) {
+            document.getElementById('client').value = selectedCustomer.name;
+            document.getElementById('customerEmail').value = selectedCustomer.email || '';
+            document.getElementById('customerPhone').value = selectedCustomer.phone || '';
+        } else {
+            document.getElementById('client').value = '';
+            document.getElementById('customerEmail').value = '';
+            document.getElementById('customerPhone').value = '';
+        }
+        this.renderSelectedCustomerBalance(selectedCustomer);
     }
     renderSelectedCustomerBalance(customer = null) {
         const select = document.getElementById('customerSelect');
@@ -420,6 +474,7 @@ class CustomerManager {
             const customers = this.getSavedCustomers();
             const existing = customers.find(c => c.name.toLowerCase() === cleanName.toLowerCase());
             if (existing) {
+                localStorage.setItem('p3_active_customer', String(existing.id));
                 select.value = String(existing.id);
                 if (nameInput) nameInput.value = existing.name;
                 if (emailInput) emailInput.value = existing.email || '';
@@ -433,6 +488,7 @@ class CustomerManager {
             const customer = { id: Date.now(), name: cleanName, email: email.trim(), phone: phone.trim(), due: 0, deposit: 0, history: [] };
             customers.push(customer);
             this.setSavedCustomers(customers);
+            localStorage.setItem('p3_active_customer', String(customer.id));
             this.renderCustomersList();
             this.renderCustomerSuggestions();
             select.value = String(customer.id);
@@ -445,10 +501,18 @@ class CustomerManager {
         }
         const customer = this.getSavedCustomers().find(c => String(c.id) === select.value);
         if (customer) {
+            localStorage.setItem('p3_active_customer', String(customer.id));
             nameInput.value = customer.name;
             emailInput.value = customer.email || '';
             if (phoneInput) phoneInput.value = customer.phone || '';
             this.renderSelectedCustomerBalance(customer);
+            cartManager.updateUI();
+        } else {
+            localStorage.removeItem('p3_active_customer');
+            if (nameInput) nameInput.value = '';
+            if (emailInput) emailInput.value = '';
+            if (phoneInput) phoneInput.value = '';
+            this.renderSelectedCustomerBalance();
             cartManager.updateUI();
         }
     }
@@ -725,11 +789,29 @@ class InventoryPriceManager {
     renderProductSuggestions() {
         const datalist = document.getElementById('managedProductSuggestions');
         if (!datalist) return;
-        const prices = this.getAutoPrices();
-        datalist.innerHTML = Object.values(prices)
-            .sort((first, second) => first.originalName.localeCompare(second.originalName))
-            .map(item => `<option value="${String(item.originalName).replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">${Number(item.price) > 0 ? `R ${Number(item.price).toFixed(2)}` : 'Price not set'}</option>`)
+        datalist.innerHTML = this.getProductSuggestions()
+            .map(item => `<option value="${this.escapeAttribute(item.name)}">${item.price > 0 ? `R ${item.price.toFixed(2)}` : 'Price not set'}</option>`)
             .join('');
+    }
+
+    getProductSuggestions() {
+        const suggestions = new Map();
+        Object.values(this.getAutoPrices()).forEach(item => {
+            const name = String(item.originalName || '').trim();
+            if (name) suggestions.set(name.toLowerCase(), { name, price: Math.max(0, Number(item.price) || 0) });
+        });
+        if (typeof stockManager !== 'undefined') {
+            stockManager.getStoredStock().forEach(item => {
+                const name = String(item.name || '').trim();
+                if (!name) return;
+                const key = name.toLowerCase();
+                const saved = suggestions.get(key);
+                const price = Math.max(0, Number(item.sellPrice) || 0);
+                if (!saved) suggestions.set(key, { name, price });
+                else if (!saved.price && price) saved.price = price;
+            });
+        }
+        return [...suggestions.values()].sort((first, second) => first.name.localeCompare(second.name));
     }
 
     renderStockFormSuggestions() {
@@ -1618,6 +1700,49 @@ class CartManager {
             firstPriceInput.focus();
         }
     }
+    renderBulkItemSuggestions() {
+        const input = document.getElementById('bulkData');
+        const list = document.getElementById('bulkItemSuggestions');
+        if (!input || !list) return;
+        const cursor = input.selectionStart;
+        const lineStart = input.value.lastIndexOf('\n', cursor - 1) + 1;
+        const nextNewline = input.value.indexOf('\n', cursor);
+        const lineEnd = nextNewline === -1 ? input.value.length : nextNewline;
+        const line = input.value.slice(lineStart, lineEnd).trim();
+        const name = line.replace(/\s+\d+$/, '').trim();
+        if (!name) {
+            list.replaceChildren();
+            list.classList.add('hidden');
+            return;
+        }
+        const matches = inventoryPriceManager.getProductSuggestions()
+            .filter(item => item.name.toLowerCase().includes(name.toLowerCase()))
+            .slice(0, 8);
+        list.innerHTML = matches.map(item => `
+            <button type="button" class="bulk-item-suggestion" role="option" data-item-name="${this.escapeHtml(item.name)}">
+                <span>${this.escapeHtml(item.name)}</span>
+                ${item.price > 0 ? `<span>R ${item.price.toFixed(2)}</span>` : ''}
+            </button>`).join('');
+        list.classList.toggle('hidden', matches.length === 0);
+    }
+    selectBulkItemSuggestion(name) {
+        const input = document.getElementById('bulkData');
+        const list = document.getElementById('bulkItemSuggestions');
+        if (!input || !list) return;
+        const cursor = input.selectionStart;
+        const lineStart = input.value.lastIndexOf('\n', cursor - 1) + 1;
+        const nextNewline = input.value.indexOf('\n', cursor);
+        const lineEnd = nextNewline === -1 ? input.value.length : nextNewline;
+        const line = input.value.slice(lineStart, lineEnd);
+        const quantity = line.match(/(\s+\d+)\s*$/);
+        const replacement = `${name}${quantity ? quantity[1] : ''}`;
+        input.value = `${input.value.slice(0, lineStart)}${replacement}${input.value.slice(lineEnd)}`;
+        const nextCursor = lineStart + replacement.length;
+        input.setSelectionRange(nextCursor, nextCursor);
+        list.replaceChildren();
+        list.classList.add('hidden');
+        input.focus();
+    }
     escapeHtml(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;'); }
 
     render() {
@@ -1625,8 +1750,8 @@ class CartManager {
         this.persistCart();
         list.innerHTML = this.cart.map(i => `
         <div class="item-row">
-            <input type="text" value="${this.escapeHtml(i.name)}" placeholder="Item name" aria-label="Item name" onchange="cartManager.upd(${i.id},'name',this.value)">
-            <input type="number" min="0" step="1" placeholder="Price" value="${this.escapeHtml(i.price)}" aria-label="Item price" onchange="cartManager.upd(${i.id},'price',this.value)">
+            <input type="text" list="managedProductSuggestions" autocomplete="off" value="${this.escapeHtml(i.name)}" placeholder="Item name" aria-label="Item name" onchange="cartManager.upd(${i.id},'name',this.value)">
+            <input type="number" min="0" step="0.01" placeholder="Price" value="${this.escapeHtml(i.price)}" aria-label="Item price" onchange="cartManager.upd(${i.id},'price',this.value)">
             <input type="number" min="1" step="1" class="qty-box" value="${this.escapeHtml(i.qty)}" placeholder="Qty" aria-label="Quantity" oninput="cartManager.upd(${i.id},'qty',this.value)" onblur="cartManager.normalizeQty(${i.id},this.value)">
             <button class="inline-action-btn" title="Delete item" aria-label="Delete item" onclick="cartManager.del(${i.id})"><i class="fas fa-trash-alt" aria-hidden="true"></i></button>
         </div>`).join('');
@@ -1635,7 +1760,7 @@ class CartManager {
     upd(id, f, v) {
         let item = this.cart.find(x => x.id === id); if (!item) return;
         if (f === 'price') {
-            item[f] = v === '' ? 0 : Math.max(0, Math.floor(Number(v) || 0));
+            item[f] = v === '' ? 0 : Math.max(0, Number(v) || 0);
             inventoryPriceManager.registerPossibleNewItem(item.name, item[f]);
         } else if (f === 'qty') {
             if (v === '') return this.updateUI();
@@ -2036,6 +2161,21 @@ window.onload = function () {
 
     document.querySelectorAll('input[type=text], input[type=number]').forEach(el => el.oninput = () => cartManager.updateUI());
     document.getElementById('stockNameInput')?.addEventListener('input', () => stockManager.fillSuggestedStockPrices());
+    const bulkData = document.getElementById('bulkData');
+    const bulkItemSuggestions = document.getElementById('bulkItemSuggestions');
+    bulkData?.addEventListener('input', () => cartManager.renderBulkItemSuggestions());
+    bulkItemSuggestions?.addEventListener('mousedown', event => event.preventDefault());
+    bulkItemSuggestions?.addEventListener('click', event => {
+        const button = event.target.closest('[data-item-name]');
+        if (button) cartManager.selectBulkItemSuggestion(button.dataset.itemName);
+    });
+    bulkData?.addEventListener('keydown', event => {
+        if (event.key !== 'ArrowDown') return;
+        const firstSuggestion = bulkItemSuggestions?.querySelector('[data-item-name]');
+        if (!firstSuggestion) return;
+        event.preventDefault();
+        firstSuggestion.focus();
+    });
     document.getElementById('emailForm').addEventListener('submit', (e) => supportManager.handleEmailSubmit(e));
     document.getElementById('stockScanQuantityConfirm')?.addEventListener('click', () => stockManager.confirmCameraScanQuantity());
     document.getElementById('stockScanQuantityCancel')?.addEventListener('click', () => stockManager.cancelCameraScanQuantity());

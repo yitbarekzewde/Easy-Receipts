@@ -33,6 +33,7 @@ const MAX_CHUNK_CODE_POINTS = 150000;
 const CHUNK_MARKER_PREFIX = "__EASY_RECEIPT_CHUNKS_V1__:";
 const SYNC_NOTICE_TIMEOUT = 8000;
 let activeUid = "";
+let authenticatedUser = null;
 let syncReady = false;
 let applyingRemoteChanges = false;
 let unsubscribeData = null;
@@ -52,6 +53,16 @@ const CATALOG_REFRESH_MS = 60000;
 let staffContext = null;
 let catalogTimer = 0;
 let authRun = 0;
+
+function getStorageMode() {
+    try {
+        const settings = JSON.parse(localStorage.getItem("p3_app_settings") || "{}");
+        return settings.storageMode === "local" ? "local" : "cloud";
+    } catch (error) {
+        console.error("Could not read the business data storage preference.", error);
+        return "cloud";
+    }
+}
 
 function isBusinessKey(key) {
     return BUSINESS_KEYS.has(key) && !(staffContext && CATALOG_KEYS.has(key));
@@ -115,6 +126,8 @@ function resetDeviceIfAccountChanged(uid) {
     const previous = localStorage.getItem("p3_device_owner");
     if (previous && previous !== uid) {
         BUSINESS_KEYS.forEach(key => localStorage.removeItem(key));
+        localStorage.removeItem("p3_active_customer");
+        localStorage.removeItem("p3_active_store");
     }
     if (previous !== uid) localStorage.setItem("p3_device_owner", uid);
 }
@@ -503,7 +516,7 @@ async function startSync(user) {
     if (alreadyInitialized === null) {
         activeUid = "";
         showSyncNotice("Cloud sync was not started. Your data remains on this device.");
-        return;
+        return false;
     }
 
     const dataReference = collection(db, "users", user.uid, "appData");
@@ -533,6 +546,7 @@ async function startSync(user) {
             reject(error);
         });
     });
+    return true;
 }
 
 function stopSync() {
@@ -552,15 +566,46 @@ window.easyReceiptSignOut = async () => {
     if (pendingWrites.size) throw new Error("Pending business data could not be synced.");
     await signOut(auth);
 };
+window.easyReceiptSetStorageMode = async mode => {
+    if (!["local", "cloud"].includes(mode)) throw new Error("Choose local or cloud storage.");
+    if (mode === "local") {
+        if (activeUid) {
+            window.clearTimeout(flushTimer);
+            await flushWrites();
+            if (pendingWrites.size) throw new Error("Cloud changes are still pending. Keep cloud storage selected and try again.");
+        }
+        stopSync();
+        if (authenticatedUser) showSyncNotice("Local storage selected. This device will not sync business data to the cloud.");
+        else hideSyncNotice();
+        return "local";
+    }
+    if (!authenticatedUser) return "sign-in-required";
+    if (activeUid === authenticatedUser.uid && syncReady) return "cloud";
+
+    for (const [key] of readLocalBusinessData()) markPending(authenticatedUser.uid, key, false);
+    try {
+        const started = await startSync(authenticatedUser);
+        if (!started) throw new Error("Cloud sync was not enabled because its setup was declined.");
+    } catch (error) {
+        stopSync();
+        throw error;
+    }
+    return "cloud";
+};
 window.easyReceiptSignInWithGoogle = idToken =>
     signInWithCredential(auth, GoogleAuthProvider.credential(idToken));
 
 onAuthStateChanged(auth, user => {
     stopSync();
+    authenticatedUser = user;
     staffContext = null;
     window.easyReceiptStaff = null;
     const run = ++authRun;
     if (!user) {
+        if (getStorageMode() === "local") {
+            hideSyncNotice();
+            return;
+        }
         showSignInPrompt("Sign in with your Easy Receipt account to sync business data across devices.");
         return;
     }
@@ -607,6 +652,11 @@ onAuthStateChanged(auth, user => {
         if (displayName) displayName.textContent = displayLabel;
         const staffName = document.getElementById("staffName");
         if (staffName) staffName.textContent = displayLabel;
+
+        if (!staffContext && getStorageMode() === "local") {
+            showSyncNotice("Local storage selected. This device will not sync business data to the cloud.");
+            return;
+        }
 
         try {
             if (staffContext) {
