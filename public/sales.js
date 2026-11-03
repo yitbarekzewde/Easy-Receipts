@@ -17,6 +17,60 @@
     };
     const escapeHtml = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
     const money = value => `R ${Number(value || 0).toFixed(2)}`;
+    function nextDailyReceiptReference(date = new Date()) {
+        const day = String(date.getDate()).padStart(2, '0');
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const year = String(date.getFullYear());
+        const dateKey = `${year}${month}${day}`;
+        let sequences;
+        try {
+            sequences = JSON.parse(localStorage.getItem('p3_receipt_sequences') || '{}');
+        } catch (error) {
+            console.error('Could not read the daily receipt sequence.', error);
+            throw new Error('Receipt number could not be generated from the saved sequence.');
+        }
+        if (!sequences || typeof sequences !== 'object' || Array.isArray(sequences)) {
+            throw new Error('The saved daily receipt sequence is invalid.');
+        }
+        const savedCount = Number(sequences[dateKey]) || 0;
+        const datePrefix = `${day}${month}${year}-`;
+        const recordedCount = readArray('p3_pos_snapshots').reduce((max, snapshot) => {
+            const match = String(snapshot.receiptRef || '').match(new RegExp(`^${datePrefix}(\\d+)$`));
+            return match ? Math.max(max, Number(match[1])) : max;
+        }, 0);
+        const nextCount = Math.max(savedCount, recordedCount) + 1;
+        sequences[dateKey] = nextCount;
+        localStorage.setItem('p3_receipt_sequences', JSON.stringify(sequences));
+        return `${datePrefix}${String(nextCount).padStart(3, '0')}`;
+    }
+
+    function buildReceiptSharePayload(receipt) {
+        return {
+            v: 1,
+            id: receipt.receiptRef,
+            createdAt: receipt.createdAt,
+            store: receipt.store,
+            customer: receipt.client,
+            items: receipt.items.map(item => ({
+                name: String(item.name || 'Item'),
+                qty: Math.max(0, Number(item.qty) || 0),
+                price: Math.max(0, Number(item.price) || 0)
+            })),
+            subtotal: receipt.subtotal,
+            discount: 0,
+            tax: 0,
+            total: receipt.total,
+            paid: receipt.paid,
+            change: receipt.paid - receipt.total
+        };
+    }
+
+    function buildReceiptShareUrl(receipt) {
+        if (!/^\d{8}-\d{3,}$/.test(String(receipt.receiptRef || ''))) {
+            throw new Error('The receipt reference is invalid.');
+        }
+        return new URL(`/shared-receipts.html/${encodeURIComponent(receipt.receiptRef)}`, window.location.origin).href;
+    }
 
     let stockItems = readArray('p3_stock_items');
     const boxMappings = readArray('p3_box_barcodes');
@@ -368,6 +422,7 @@
         customer.history = Array.isArray(customer.history) ? customer.history : [];
         customer.history.push({
             id: receipt.id,
+            receiptRef: receipt.receiptRef,
             timestamp: receipt.timestamp,
             store: receipt.store,
             total: receipt.total,
@@ -389,7 +444,7 @@
         localStorage.setItem('p3_stock_items', JSON.stringify(stockItems));
     }
 
-    function completeSale() {
+    async function completeSale() {
         if (!cart.length) {
             setCheckoutMessage('Add at least one product before completing the sale.', 'error');
             return;
@@ -404,10 +459,21 @@
         const totals = getTotals();
         const id = Date.now();
         const timestamp = new Date().toLocaleString();
+        const createdAt = new Date().toISOString();
         const store = elements.posStore.value || 'My Store';
         const items = cart.map(item => ({ ...item }));
+        let receiptRef;
+        try {
+            receiptRef = nextDailyReceiptReference();
+        } catch (error) {
+            console.error('Could not generate the POS receipt reference.', error);
+            setCheckoutMessage(error.message, 'error');
+            return;
+        }
         const receipt = {
             id,
+            receiptRef,
+            createdAt,
             timestamp,
             store,
             client: customer.name,
@@ -419,15 +485,25 @@
             cashier: window.easyReceiptStaff?.name || '',
             image: ''
         };
+        let shareUrlError = false;
+        let shareUrlErrorMessage = '';
+        let sharePayload = null;
+        let shareUrl = '';
+        try {
+            sharePayload = buildReceiptSharePayload({ ...receipt, items, subtotal: totals.subtotal });
+            shareUrl = buildReceiptShareUrl(receipt);
+        } catch (error) {
+            shareUrlError = true;
+            shareUrlErrorMessage = error.message;
+            console.error('Could not create the POS receipt link.', error);
+        }
 
         const snapshots = readArray('p3_pos_snapshots');
         snapshots.push(receipt);
         localStorage.setItem('p3_pos_snapshots', JSON.stringify(snapshots));
-        updateCustomerLedger(customer, { id, timestamp, store, total: totals.total, paid: totals.paid, items });
+        updateCustomerLedger(customer, { id, receiptRef, timestamp, store, total: totals.total, paid: totals.paid, items });
         localStorage.setItem('p3_saved_customers', JSON.stringify(customers));
         applyStockSale(items);
-        currentReceipt = { ...receipt, items, subtotal: totals.subtotal, change: Math.max(0, totals.balance), due: Math.max(0, -totals.balance) };
-        renderPrintReceipt(currentReceipt);
 
         cart = [];
         persistCart();
@@ -438,19 +514,56 @@
         renderCustomers(customer.id);
         renderProducts();
         renderRecentSales();
+
+        if (sharePayload && !shareUrlError) {
+            elements.completeSale.disabled = true;
+            try {
+                if (typeof window.easyReceiptPublishReceipt !== 'function') {
+                    throw new Error('The receipt sharing service is unavailable.');
+                }
+                await window.easyReceiptPublishReceipt(sharePayload);
+                receipt.shareUrl = shareUrl;
+                localStorage.setItem('p3_pos_snapshots', JSON.stringify(snapshots));
+                renderRecentSales();
+            } catch (error) {
+                shareUrlError = true;
+                shareUrlErrorMessage = error.message;
+                receipt.shareUrl = '';
+                console.error('Could not publish the POS receipt link.', error);
+            } finally {
+                elements.completeSale.disabled = false;
+            }
+        }
+
+        currentReceipt = { ...receipt, items, subtotal: totals.subtotal, change: Math.max(0, totals.balance), due: Math.max(0, -totals.balance) };
+        renderPrintReceipt(currentReceipt);
         elements.printReceipt.classList.remove('hidden');
-        setCheckoutMessage(`Sale completed for ${customer.name}. Receipt ${id}.`);
+        setCheckoutMessage(shareUrlError
+            ? `Sale completed for ${customer.name}. Receipt Ref ${receiptRef}; short link unavailable: ${shareUrlErrorMessage}`
+            : `Sale completed for ${customer.name}. Receipt Ref ${receiptRef}.`);
     }
 
     function renderPrintReceipt(receipt) {
         const rows = receipt.items.map(item => `<tr><td>${escapeHtml(item.name)} × ${Number(item.qty || 0)}</td><td>${money(Number(item.price || 0) * Number(item.qty || 0))}</td></tr>`).join('');
         elements.printReceiptContent.innerHTML = `
-            <div class="receipt-print-header"><h1>${escapeHtml(receipt.store)}</h1><p>Sales receipt</p><p>${escapeHtml(receipt.timestamp)}</p><p>Receipt #${escapeHtml(receipt.id)}</p><p>Customer: ${escapeHtml(receipt.client)}</p></div>
+            <div class="receipt-print-header"><h1>${escapeHtml(receipt.store)}</h1><p>Sales receipt</p><p>${escapeHtml(receipt.timestamp)}</p><p>Receipt Ref: ${escapeHtml(receipt.receiptRef || `ER-${receipt.id}`)}</p><p>Customer: ${escapeHtml(receipt.client)}</p></div>
             <table class="receipt-print-table"><thead><tr><th>Item</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table>
             <div class="receipt-print-total"><span>Total</span><span>${money(receipt.total)}</span></div>
             <p>Paid: ${money(receipt.paid)}${receipt.change ? ` · Change: ${money(receipt.change)}` : ''}</p>
             ${receipt.due ? `<p>Amount due: ${money(receipt.due)}</p>` : ''}
+            <div id="posReceiptQr" class="pos-receipt-qr"></div><p class="pos-receipt-qr-note">Scan to view customer receipt</p>
             <p style="text-align:center;margin-top:22px">Thank you</p>`;
+        try {
+            if (!receipt.shareUrl) throw new Error('Receipt share link is unavailable.');
+            if (typeof QRious !== 'function') throw new Error('QR code generator is unavailable.');
+            const qr = new QRious({ element: document.createElement('canvas'), value: receipt.shareUrl, size: 200, level: 'L', padding: 12 });
+            elements.printReceiptContent.querySelector('#posReceiptQr').appendChild(qr.canvas);
+        } catch (error) {
+            console.error('Could not generate the POS receipt QR code.', error);
+            elements.printReceiptContent.querySelector('#posReceiptQr').textContent = receipt.shareUrl
+                ? 'QR code unavailable. Please share the receipt link.'
+                : 'Receipt link unavailable.';
+        }
     }
 
     function renderRecentSales() {
@@ -479,6 +592,7 @@
             }
             purchases.set(id, {
                 id,
+                receiptRef: entry.receiptRef || `ER-${id}`,
                 timestamp,
                 store: entry.store || 'Store',
                 total: Number(entry.total || 0),
@@ -513,7 +627,7 @@
                 <article class="customer-purchase">
                     <div class="purchase-heading"><span><strong>${escapeHtml(purchase.timestamp || 'Date unavailable')}</strong><small>${escapeHtml(purchase.store)}</small></span><strong>${money(purchase.total)}</strong></div>
                     <div class="purchase-items">${itemRows}</div>
-                    <div class="purchase-payment"><span>Receipt ${escapeHtml(purchase.id)}</span><span>Paid ${money(purchase.paid)}</span></div>
+                    <div class="purchase-payment"><span>Receipt Ref ${escapeHtml(purchase.receiptRef)}</span><span>Paid ${money(purchase.paid)}</span></div>
                 </article>`;
         }).join('') : '<p class="purchase-no-items">No saved purchase history for this customer.</p>';
         const balance = customer ? `<span class="history-balance">${Number(customer.due || 0) > 0 ? `Balance due ${money(customer.due)}` : Number(customer.deposit || 0) > 0 ? `Store credit ${money(customer.deposit)}` : 'Account balanced'}</span>` : '';

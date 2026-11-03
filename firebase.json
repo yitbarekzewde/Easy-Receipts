@@ -8,6 +8,12 @@
   },
   "hosting": {
     "public": "public",
+    "rewrites": [
+      {
+        "source": "/shared-receipts.html/**",
+        "destination": "/shared-receipt.html"
+      }
+    ],
     "ignore": [
       "firebase.json",
       "**/.*",

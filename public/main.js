@@ -17,6 +17,36 @@ function msg(message, type = 'info') {
 window.msg = msg;
 window.alert = msg;
 
+function nextDailyReceiptReference(date = new Date()) {
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = String(date.getFullYear());
+    const dateKey = `${year}${month}${day}`;
+    let sequences;
+    try {
+        sequences = JSON.parse(localStorage.getItem('p3_receipt_sequences') || '{}');
+    } catch (error) {
+        console.error('Could not read the daily receipt sequence.', error);
+        throw new Error('Receipt number could not be generated from the saved sequence.');
+    }
+    if (!sequences || typeof sequences !== 'object' || Array.isArray(sequences)) {
+        throw new Error('The saved daily receipt sequence is invalid.');
+    }
+    const savedCount = Number(sequences[dateKey]) || 0;
+    const datePrefix = `${day}${month}${year}-`;
+    const snapshots = JSON.parse(localStorage.getItem('p3_pos_snapshots') || '[]');
+    const recordedCount = Array.isArray(snapshots)
+        ? snapshots.reduce((max, snapshot) => {
+            const match = String(snapshot.receiptRef || '').match(new RegExp(`^${datePrefix}(\\d+)$`));
+            return match ? Math.max(max, Number(match[1])) : max;
+        }, 0)
+        : 0;
+    const nextCount = Math.max(savedCount, recordedCount) + 1;
+    sequences[dateKey] = nextCount;
+    localStorage.setItem('p3_receipt_sequences', JSON.stringify(sequences));
+    return `${datePrefix}${String(nextCount).padStart(3, '0')}`;
+}
+
 // ─── 1. AUTHENTICATION & LOCAL PROFILE MANAGER ───────────────────────────────
 class AuthManager {
     constructor() {
@@ -592,6 +622,7 @@ class CustomerManager {
         
         target.history.push({
             id: receiptData.id || Date.now(),
+            receiptRef: receiptData.receiptRef || `ER-${receiptData.id || Date.now()}`,
             timestamp: receiptData.timestamp || new Date().toLocaleString(),
             store: receiptData.store || "Shop",
             total: billTotal,
@@ -647,13 +678,13 @@ class CustomerManager {
 
                                     return `
                                     <tr style="border-bottom:1px solid #f1f5f9; color:#1e293b;">
-                                        <td style="padding:10px; font-weight:600; color:var(--dark);">${h.store}</td>
+                                        <td style="padding:10px; font-weight:600; color:var(--dark);">${h.store}<br><small>Ref: ${h.receiptRef || `ER-${h.id}`}</small></td>
                                         <td style="padding:10px; white-space:nowrap; color:#64748b;">${h.timestamp}</td>
                                         <td style="padding:10px; font-weight:500;">R ${parseFloat(h.total).toFixed(2)}</td>
                                         <td style="padding:10px; color:#0f766e;">R ${parseFloat(h.paid).toFixed(2)}</td>
                                         <td style="padding:10px;">${statusCell}</td>
                                         <td style="padding:10px; text-align:center;">
-                                            <button class="customer-add-btn" style="padding:4px 10px; font-size:12px; margin:0;" onclick="customerManager.viewTextReceipt('${h.store.replace(/'/g, "\\'")}', '${h.timestamp}', '${c.name.replace(/'/g, "\\'")}', ${h.total}, ${h.paid}, '${itemsJsonStr}')">
+                                            <button class="customer-add-btn" style="padding:4px 10px; font-size:12px; margin:0;" onclick="customerManager.viewTextReceipt('${h.store.replace(/'/g, "\\'")}', '${h.timestamp}', '${c.name.replace(/'/g, "\\'")}', ${h.total}, ${h.paid}, '${itemsJsonStr}', '${h.receiptRef || `ER-${h.id}`}')">
                                                 <i class="fas fa-file-invoice"></i> Receipt
                                             </button>
                                         </td>
@@ -731,8 +762,24 @@ class CustomerManager {
         this.renderCustomerSuggestions();
     }
 
-    viewTextReceipt(store, date, client, total, paid, itemsUrlEncoded) {
+    async viewTextReceipt(store, date, client, total, paid, itemsUrlEncoded, receiptRef = `ER-${Date.now()}`) {
         const items = JSON.parse(decodeURIComponent(itemsUrlEncoded));
+        const receiptPayload = {
+            v: 1,
+            id: receiptRef,
+            createdAt: Number.isNaN(Date.parse(date)) ? new Date().toISOString() : new Date(date).toISOString(),
+            store,
+            customer: client,
+            items,
+            subtotal: Number(total) || 0,
+            discount: 0,
+            tax: 0,
+            total: Number(total) || 0,
+            paid: Number(paid) || 0,
+            change: (Number(paid) || 0) - (Number(total) || 0)
+        };
+        const hasShortReference = /^\d{8}-\d{3,}$/.test(String(receiptRef));
+        const receiptLink = hasShortReference ? '' : window.createReceiptShareLink(receiptPayload);
         let rowsHtml = items.map(i => `
             <div style="display:flex; justify-content:space-between; font-family:monospace; font-size:13px; margin-bottom:4px; color:#334155;">
                 <span>${i.name} (x${i.qty})</span>
@@ -750,16 +797,43 @@ class CustomerManager {
             <div style="background:white; padding:24px; border-radius:16px; width:92%; max-width:380px; box-shadow:0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);">
                 <h3 style="text-align:center; margin:0 0 4px 0; font-family:sans-serif; color:var(--dark); font-size:20px;">${store}</h3>
                 <p style="text-align:center; font-size:12px; color:#64748b; margin:0 0 16px 0;">${date}</p>
+                <p style="text-align:center; font-size:12px; font-family:monospace;">Receipt Ref: ${receiptRef}</p>
                 <div style="border-bottom:1px dashed #cbd5e1; margin-bottom:12px;"></div>
                 <p style="font-size:13.5px; margin:0 0 12px 0; color:#1e293b;"><b>CUSTOMER:</b> ${client}</p>
                 <div style="margin-bottom:12px;">${rowsHtml}</div>
                 <div style="border-bottom:1px dashed #cbd5e1; margin-bottom:12px;"></div>
                 <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:15px; margin-bottom:6px; color:var(--dark);"><span>TOTAL BILL</span><span>R ${parseFloat(total).toFixed(2)}</span></div>
                 <div style="display:flex; justify-content:space-between; font-size:14px; color:#475569; margin-bottom:18px;"><span>AMOUNT PAID</span><span>R ${parseFloat(paid).toFixed(2)}</span></div>
+                <div id="text-receipt-qr" style="display:flex;justify-content:center;margin:12px 0 4px;"></div>
+                <p style="text-align:center;font-size:11px;color:#475569;">SCAN TO VIEW CUSTOMER RECEIPT</p>
                 <button class="btn-danger" style="width:100%; padding:10px; border-radius:8px; font-weight:600; cursor:pointer; margin:0;" onclick="document.getElementById('tempTextReceiptModal').remove()">Close Statement Snapshot</button>
             </div>
         `;
         document.body.appendChild(container);
+        const qrContainer = container.querySelector('#text-receipt-qr');
+        if (hasShortReference) {
+            qrContainer.textContent = 'Preparing short receipt link...';
+            try {
+                if (typeof window.easyReceiptPublishReceipt !== 'function') {
+                    throw new Error('The receipt sharing service is unavailable.');
+                }
+                await window.easyReceiptPublishReceipt(receiptPayload, true);
+                const link = window.createReceiptShareLink(receiptPayload);
+                const qr = new QRious({ element: document.createElement('canvas'), value: link, size: 200, level: 'L', padding: 12 });
+                qrContainer.replaceChildren(qr.canvas);
+            } catch (error) {
+                console.error('Could not publish the saved customer receipt link.', error);
+                qrContainer.textContent = 'Short link unavailable. Sign in and enable Cloud storage.';
+            }
+            return;
+        }
+        try {
+            const qr = new QRious({ element: document.createElement('canvas'), value: receiptLink, size: 200, level: 'L', padding: 12 });
+            qrContainer.appendChild(qr.canvas);
+        } catch (error) {
+            console.error('Could not generate the saved receipt QR code.', error);
+            qrContainer.textContent = 'QR code unavailable. Share the receipt link instead.';
+        }
     }
 }
 
@@ -1804,11 +1878,22 @@ class CartManager {
         const receiptBox = document.getElementById('receipt-box'); if (!receiptBox) return;
         const data = this.calculateTotals();
         let storeName = document.getElementById('storeSelect').value || "My Store";
+        const receiptPayload = window.getReceiptSharePayload?.();
+        const receiptRef = receiptPayload?.id || '';
+        let receiptLink = '';
+        if (receiptPayload && window.activeReceiptShareSnapshot?.published) {
+            try {
+                receiptLink = window.createReceiptShareLink(receiptPayload);
+            } catch (error) {
+                console.error('Could not create the customer receipt link.', error);
+            }
+        }
 
         document.getElementById('receipt-ui').innerHTML = `
             <div class="receipt-ui-container">
                 <h1 class="receipt-store-name">${storeName}</h1>
                 <p class="receipt-date">${new Date().toLocaleString()}</p>
+                <p class="receipt-reference">Receipt Ref: ${receiptRef}</p>
                 <div class="receipt-divider"></div>
                 <p class="receipt-client-line"><b>CLIENT:</b> ${document.getElementById('client').value || '-'}</p>
                 <table class="receipt-table">
@@ -1835,15 +1920,25 @@ class CartManager {
                         ${data.change < 0 ? `<div class="receipt-due">AMOUNT DUE: R ${Math.abs(data.change).toFixed(2)}</div>` : ''}
                     </div>` : ''}
                 <div class="receipt-qr-section"><div id="qr-place"></div></div>
-                <p class="receipt-qr-note">SCAN TO VISIT OUR WEBSITE</p>
+                <p class="receipt-qr-note">SCAN TO VIEW CUSTOMER RECEIPT</p>
                 <p class="receipt-footer">This receipt is prepared by <strong>${authManager.currentUser ? authManager.currentUser.name : "Easy Receipt"}</strong></p>
             </div>`;
 
-        const qr = new QRious({ element: document.createElement('canvas'), value: 'https://www.receipts.lat', size: 90 });
         const qrContainer = document.getElementById('qr-place');
-        if (qrContainer) {
-            while(qrContainer.firstChild) qrContainer.removeChild(qrContainer.firstChild);
-            qrContainer.appendChild(qr.image);
+        if (qrContainer && receiptLink) {
+            try {
+                const qr = new QRious({ element: document.createElement('canvas'), value: receiptLink, size: 200, level: 'L', padding: 12 });
+                qrContainer.replaceChildren(qr.canvas);
+            } catch (error) {
+                console.error('Could not generate the customer receipt QR code.', error);
+                qrContainer.textContent = 'QR unavailable. Share the receipt link instead.';
+            }
+        } else if (qrContainer && receiptPayload) {
+            qrContainer.textContent = window.activeReceiptShareSnapshot?.published
+                ? 'Receipt link unavailable.'
+                : window.activeReceiptShareSnapshot?.saved
+                    ? 'Receipt link not published yet.'
+                    : 'Save receipt to activate its customer QR code.';
         }
     }
     //==========Print and Save Receipt Logic===============
@@ -1859,6 +1954,43 @@ class CartManager {
 
     const totals = this.calculateTotals();
     const receiptId = Date.now();
+    this.updateUI();
+    let receiptPayload = window.getReceiptSharePayload();
+    if (window.activeReceiptShareSnapshot?.saved && !window.activeReceiptShareSnapshot.published) {
+        try {
+            const retryLink = window.createReceiptShareLink(receiptPayload);
+            if (typeof window.easyReceiptPublishReceipt !== 'function') {
+                throw new Error('The receipt sharing service is unavailable.');
+            }
+            await window.easyReceiptPublishReceipt(receiptPayload);
+            const stillCurrent = window.activeReceiptShareSnapshot?.payload.id === receiptPayload.id;
+            if (stillCurrent) window.activeReceiptShareSnapshot.published = true;
+            const savedReceipts = JSON.parse(localStorage.getItem('p3_pos_snapshots') || '[]');
+            const savedReceipt = savedReceipts.find(item => item.receiptRef === receiptPayload.id);
+            if (savedReceipt) savedReceipt.shareUrl = retryLink;
+            this.updateUI();
+            if (stillCurrent && savedReceipt && window.html2canvas) {
+                try {
+                    const receiptCanvas = await html2canvas(document.getElementById('receipt-box'), { scale: 2, backgroundColor: '#ffffff' });
+                    savedReceipt.image = receiptCanvas.toDataURL('image/png');
+                } catch (error) {
+                    console.warn('Could not update the saved receipt image with its QR code.', error);
+                }
+            }
+            localStorage.setItem('p3_pos_snapshots', JSON.stringify(savedReceipts));
+            return alert('The saved receipt short link is now ready.');
+        } catch (error) {
+            console.error('Could not publish the saved customer receipt link.', error);
+            return alert(`Receipt is already saved, but its short customer link could not be published: ${error.message}`);
+        }
+    }
+    if (window.activeReceiptShareSnapshot?.saved) {
+        window.activeReceiptShareSnapshot = null;
+        this.updateUI();
+        receiptPayload = window.getReceiptSharePayload();
+    }
+    const receiptRef = receiptPayload.id;
+    let shareUrl = '';
     const timestampStr = new Date().toLocaleString();
     const activeStore = document.getElementById('storeSelect').value;
 
@@ -1870,6 +2002,8 @@ class CartManager {
     let snaps = JSON.parse(localStorage.getItem('p3_pos_snapshots') || '[]');
     snaps.push({ 
         id: receiptId, 
+        receiptRef,
+        shareUrl,
         timestamp: timestampStr, 
         store: activeStore, 
         client: clientName, 
@@ -1879,10 +2013,44 @@ class CartManager {
         image: snapshotImage
     });
     localStorage.setItem('p3_pos_snapshots', JSON.stringify(snaps));
+    if (window.activeReceiptShareSnapshot) {
+        window.activeReceiptShareSnapshot.saved = true;
+        window.activeReceiptShareSnapshot.published = false;
+    }
+
+    let shareError = null;
+    try {
+        shareUrl = window.createReceiptShareLink(receiptPayload);
+        if (typeof window.easyReceiptPublishReceipt !== 'function') {
+            throw new Error('The receipt sharing service is unavailable.');
+        }
+        await window.easyReceiptPublishReceipt(receiptPayload);
+    } catch (error) {
+        shareError = error;
+        console.error('Could not publish the saved customer receipt link.', error);
+    }
+    if (shareError) this.updateUI();
+    if (!shareError) {
+        const stillCurrent = window.activeReceiptShareSnapshot?.payload.id === receiptPayload.id;
+        if (stillCurrent) window.activeReceiptShareSnapshot.published = true;
+        this.updateUI();
+        const savedReceipt = snaps[snaps.length - 1];
+        savedReceipt.shareUrl = shareUrl;
+        if (stillCurrent && window.html2canvas) {
+            try {
+                const receiptCanvas = await html2canvas(document.getElementById('receipt-box'), { scale: 2, backgroundColor: '#ffffff' });
+                savedReceipt.image = receiptCanvas.toDataURL('image/png');
+            } catch (error) {
+                console.warn('Could not update the saved receipt image with its QR code.', error);
+            }
+        }
+        localStorage.setItem('p3_pos_snapshots', JSON.stringify(snaps));
+    }
     
     // Automatically triggers ledger calculation data distribution inside Customer Directory
     customerManager.logCustomerReceipt(clientName, {
         id: receiptId,
+        receiptRef,
         timestamp: timestampStr,
         store: activeStore,
         total: totals.total,
@@ -1905,7 +2073,9 @@ class CartManager {
     if (typeof buildStatementRows === 'function') buildStatementRows(); 
     if (typeof renderSavedReceipts === 'function') renderSavedReceipts(); 
     
-    alert("Receipt values recorded to customer data sheet successfully!");
+    alert(shareError
+        ? `Receipt saved, but its short customer link could not be published: ${shareError.message}`
+        : "Receipt saved and its short customer link is ready.");
 }
     getLocalDateKey(value) {
         const date = value instanceof Date ? value : new Date(value);
@@ -2416,9 +2586,9 @@ function renderSavedReceipts() {
                 <div class="saved-receipt-heading"><span class="saved-receipt-badge"><i class="fas fa-check"></i> Saved</span><time>${s.timestamp || ''}</time></div>
                 <h4>${safeClient}</h4>
                 <p class="saved-receipt-store"><i class="fas fa-store"></i> ${safeStore}</p>
-                <div class="saved-receipt-meta"><span>${itemCount} item${itemCount === 1 ? '' : 's'}</span><strong>R ${parseFloat(s.total || 0).toFixed(2)}</strong></div>
+                <div class="saved-receipt-meta"><span>${itemCount} item${itemCount === 1 ? '' : 's'} · Ref ${escapeDraftHtml(s.receiptRef || `ER-${s.id}`)}</span><strong>R ${parseFloat(s.total || 0).toFixed(2)}</strong></div>
                 <div class="saved-receipt-actions">
-                    <button class="btn-primary" onclick="customerManager.viewTextReceipt('${safeStore}', '${String(s.timestamp || '').replace(/'/g, "\\'")}', '${safeClient}', ${parseFloat(s.total || 0)}, ${parseFloat(s.paid || 0)}, '${itemsEncoded}')"><i class="fas fa-eye"></i> View</button>
+                    <button class="btn-primary" onclick="customerManager.viewTextReceipt('${safeStore}', '${String(s.timestamp || '').replace(/'/g, "\\'")}', '${safeClient}', ${parseFloat(s.total || 0)}, ${parseFloat(s.paid || 0)}, '${itemsEncoded}', '${s.receiptRef || `ER-${s.id}`}')"><i class="fas fa-eye"></i> View</button>
                     <button class="btn-share" onclick="downloadSavedReceipt(${s.id})"><i class="fas fa-download"></i> Download</button>
                 </div>
             </div>
@@ -2853,12 +3023,15 @@ window.shareReceiptAction = function() {
     if (!window.cartManager || window.cartManager.cart.length === 0) {
         return alert("Cart is empty! Add items before sharing.");
     }
+    if (!window.activeReceiptShareSnapshot?.published) return alert("Save the receipt before sharing its customer link.");
     
     const totals = cartManager.calculateTotals();
     const client = document.getElementById('client')?.value || 'Customer';
     const store = document.getElementById('storeSelect')?.value || 'Easy Receipt';
 
+    const receiptPayload = window.getReceiptSharePayload();
     let text = `*${store} - Official Receipt*\n`;
+    text += `Receipt Ref: ${receiptPayload.id}\n`;
     text += `Date: ${new Date().toLocaleString()}\n`;
     text += `Client: ${client}\n`;
     text += `---------------------------\n`;
@@ -2904,10 +3077,31 @@ window.getReceiptShareText = function() {
     const store = document.getElementById('storeSelect')?.value || 'Easy Receipt';
     const items = cartManager.cart.map(item => `${item.name} (x${item.qty}) - R ${(parseFloat(item.price || 0) * item.qty).toFixed(2)}`).join('\n');
     const balance = totals.change >= 0 ? `CHANGE/DEPOSIT: R ${totals.change.toFixed(2)}` : `AMOUNT DUE: R ${Math.abs(totals.change).toFixed(2)}`;
-    return `${store} - Official Receipt\nDate: ${new Date().toLocaleString()}\nClient: ${client}\n---------------------------\n${items}\n---------------------------\nTOTAL BILL: R ${totals.total.toFixed(2)}\nPAID: R ${totals.totalPaid.toFixed(2)}\n${balance}\n\nView receipt: ${window.getReceiptShareLink()}`;
+    const receiptPayload = window.getReceiptSharePayload();
+    const receiptLink = window.activeReceiptShareSnapshot?.published
+        ? `\n\nView receipt: ${window.createReceiptShareLink(receiptPayload)}`
+        : '';
+    return `${store} - Official Receipt\nReceipt Ref: ${receiptPayload.id}\nDate: ${new Date().toLocaleString()}\nClient: ${client}\n---------------------------\n${items}\n---------------------------\nTOTAL BILL: R ${totals.total.toFixed(2)}\nPAID: R ${totals.totalPaid.toFixed(2)}\n${balance}${receiptLink}`;
 };
 
-window.getReceiptShareLink = function() {
+window.createReceiptShareLink = function(payload) {
+    if (!payload || !payload.id || !Array.isArray(payload.items)) return '';
+    const receiptUrl = new URL('shared-receipt.html', window.location.href);
+    if (/^\d{8}-\d{3,}$/.test(String(payload.id))) {
+        return new URL(`/shared-receipts.html/${encodeURIComponent(payload.id)}`, window.location.origin).href;
+    }
+    const bytes = new TextEncoder().encode(JSON.stringify(payload));
+    let binary = '';
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+    }
+    const encoded = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+    if (encoded.length > 120000) throw new Error('This receipt is too large to encode as a shareable link.');
+    receiptUrl.hash = `r=${encoded}`;
+    return receiptUrl.href;
+};
+
+window.getReceiptSharePayload = function() {
     if (!window.cartManager || cartManager.cart.length === 0) return '';
     const totals = cartManager.calculateTotals();
     const receiptData = {
@@ -2928,24 +3122,30 @@ window.getReceiptShareLink = function() {
     const signature = JSON.stringify(receiptData);
     let snapshot = window.activeReceiptShareSnapshot;
     if (!snapshot || snapshot.signature !== signature) {
-        const uniqueId = window.crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+        const keepCurrentReference = snapshot && !snapshot.saved;
         snapshot = {
             signature: signature,
-            payload: Object.assign({ v: 1, id: `ER-${uniqueId}`, createdAt: new Date().toISOString() }, receiptData)
+            saved: false,
+            published: false,
+            payload: Object.assign({
+                v: 1,
+                id: keepCurrentReference ? snapshot.payload.id : nextDailyReceiptReference(),
+                createdAt: keepCurrentReference ? snapshot.payload.createdAt : new Date().toISOString()
+            }, receiptData)
         };
         window.activeReceiptShareSnapshot = snapshot;
     }
+    return snapshot.payload;
+};
 
-    const bytes = new TextEncoder().encode(JSON.stringify(snapshot.payload));
-    let binary = '';
-    for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-        binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
-    }
-    const encoded = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-    return `${new URL('shared-receipt.html', window.location.href).href}#r=${encoded}`;
+window.getReceiptShareLink = function() {
+    if (!window.activeReceiptShareSnapshot?.published) return '';
+    const payload = window.getReceiptSharePayload();
+    return payload ? window.createReceiptShareLink(payload) : '';
 };
 
 window.copyReceiptLink = async function() {
+    if (!window.activeReceiptShareSnapshot?.published) return alert('Save the receipt before sharing its customer link.');
     const receiptLink = window.getReceiptShareLink();
     if (!receiptLink) return alert('Cart is empty! Add items before sharing.');
     try {
@@ -2969,6 +3169,7 @@ window.downloadReceiptText = function() {
 };
 
 window.shareReceiptPng = async function() {
+    if (!window.activeReceiptShareSnapshot?.published) return alert('Save the receipt before sharing its customer link.');
     const receipt = document.getElementById('receipt-box');
     if (!receipt) return alert('No receipt is available to share.');
     if (!window.html2canvas) return alert('PNG sharing is unavailable because the image service did not load.');
@@ -3000,6 +3201,7 @@ window.shareReceiptPng = async function() {
 };
 
 window.shareReceiptPdf = async function() {
+    if (!window.activeReceiptShareSnapshot?.published) return alert('Save the receipt before sharing its customer link.');
     const receipt = document.getElementById('receipt-box');
     if (!receipt) return alert('No receipt is available to share.');
     if (!window.html2canvas || !window.jspdf?.jsPDF) {
@@ -3039,6 +3241,7 @@ window.shareReceiptPdf = async function() {
 };
 
 window.shareReceiptTelegram = function() {
+    if (!window.activeReceiptShareSnapshot?.published) return alert('Save the receipt before sharing its customer link.');
     const receiptLink = window.getReceiptShareLink();
     const text = `Receipt from ${document.getElementById('storeSelect')?.value || 'Easy Receipt'}`;
     window.open(`https://t.me/share/url?url=${encodeURIComponent(receiptLink)}&text=${encodeURIComponent(text)}`, '_blank');

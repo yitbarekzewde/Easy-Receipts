@@ -10,6 +10,7 @@ import {
     getDoc,
     onSnapshot,
     runTransaction,
+    setDoc,
     writeBatch
 } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
 import { auth, db } from "./firebase-config.js";
@@ -21,6 +22,7 @@ const BUSINESS_KEYS = new Set([
     "p3_pos_drafts",
     "p3_pos_deleted_drafts",
     "p3_pos_snapshots",
+    "p3_receipt_sequences",
     "p3_saved_customers",
     "p3_saved_stores",
     "p3_stock_audit",
@@ -594,6 +596,43 @@ window.easyReceiptSetStorageMode = async mode => {
 };
 window.easyReceiptSignInWithGoogle = idToken =>
     signInWithCredential(auth, GoogleAuthProvider.credential(idToken));
+window.easyReceiptPublishReceipt = async (payload, allowExisting = false) => {
+    if (!activeUid || !syncReady) {
+        throw new Error("Sign in and enable Cloud storage to publish a short receipt link.");
+    }
+    if (!payload || payload.v !== 1 || typeof payload.id !== "string"
+        || !/^\d{8}-\d{3,}$/.test(payload.id) || !Array.isArray(payload.items)
+        || payload.items.length > 500) {
+        throw new Error("The receipt data is invalid and cannot be published.");
+    }
+    const ownerUid = activeUid;
+    const serializedPayload = JSON.stringify(payload);
+    if (serializedPayload.length > 200000) {
+        throw new Error("This receipt is too large to publish as a short link.");
+    }
+    const receiptReference = doc(db, "receiptShares", payload.id);
+    const receiptData = {
+        ownerUid,
+        receiptRef: payload.id,
+        payload: serializedPayload
+    };
+    const existing = await getDoc(receiptReference);
+    if (existing.exists()) {
+        const existingData = existing.data();
+        if (existingData.ownerUid === ownerUid
+            && (allowExisting || existingData.payload === serializedPayload)) return;
+        throw new Error("This receipt reference is already assigned to another saved receipt.");
+    }
+    try {
+        await setDoc(receiptReference, receiptData);
+    } catch (error) {
+        const racedReceipt = await getDoc(receiptReference);
+        if (racedReceipt.exists()
+            && racedReceipt.data().ownerUid === ownerUid
+            && (allowExisting || racedReceipt.data().payload === serializedPayload)) return;
+        throw error;
+    }
+};
 
 onAuthStateChanged(auth, user => {
     stopSync();

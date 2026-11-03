@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#176b4b">
   <title>Shared Receipt | Easy Receipt</title>
-  <link rel="icon" href="public/easy-receipt-logo.svg" type="image/svg+xml">
+  <link rel="icon" href="/easy-receipt-logo.svg" type="image/svg+xml">
   <style>
     :root { color-scheme: light; --ink: #19352a; --muted: #64756c; --green: #176b4b; --line: #e4ebe6; }
     * { box-sizing: border-box; }
@@ -56,10 +56,16 @@
     <div class="actions" id="actions" hidden><button class="secondary" id="print" type="button">Print receipt</button><button id="share" type="button">Share receipt</button></div>
     <p class="status" id="status" aria-live="polite"></p>
   </main>
-  <script>
+  <script type="module">
     const text = (value, limit = 160) => String(value ?? '').trim().slice(0, limit);
     const number = value => Number.isFinite(Number(value)) ? Number(value) : 0;
     const money = value => 'R ' + number(value).toFixed(2);
+
+    function validPayload(payload) {
+      return payload && payload.v === 1 && text(payload.id, 80)
+        && Array.isArray(payload.items) && payload.items.length <= 500;
+    }
+
     function decodePayload() {
       const encoded = new URLSearchParams(location.hash.slice(1)).get('r');
       if (!encoded || encoded.length > 120000) return null;
@@ -68,7 +74,22 @@
       const bytes = new Uint8Array(binary.length);
       for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
       const payload = JSON.parse(new TextDecoder().decode(bytes));
-      if (payload.v !== 1 || !text(payload.id, 80) || !Array.isArray(payload.items) || payload.items.length > 500) return null;
+      return validPayload(payload) ? payload : null;
+    }
+
+    async function fetchPayloadByReference(receiptRef) {
+      if (!/^\d{8}-\d{3,}$/.test(receiptRef)) throw new Error('Invalid receipt reference.');
+      const [{ doc, getDoc }, { db }] = await Promise.all([
+        import('https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js'),
+        import('/firebase-config.js')
+      ]);
+      const snapshot = await getDoc(doc(db, 'receiptShares', receiptRef));
+      if (!snapshot.exists()) throw new Error('Receipt was not found.');
+      const data = snapshot.data();
+      const payload = JSON.parse(data.payload);
+      if (data.receiptRef !== receiptRef || payload.id !== receiptRef || !validPayload(payload)) {
+        throw new Error('Stored receipt data is invalid.');
+      }
       return payload;
     }
     function addTotal(container, label, value, grand = false) {
@@ -96,8 +117,17 @@
       if (number(payload.paid) > 0) { addTotal(totals, 'Paid', payload.paid); const change = number(payload.change); addTotal(totals, change >= 0 ? 'Change' : 'Amount due', Math.abs(change)); }
       document.getElementById('receipt').hidden = false; document.getElementById('actions').hidden = false;
     }
-    try { const payload = decodePayload(); if (!payload) throw new Error('Invalid receipt.'); render(payload); }
-    catch (error) { document.getElementById('error').hidden = false; }
+    try {
+      const pathMatch = location.pathname.match(/\/shared-receipts\.html\/([^/]+)\/?$/);
+      const receiptRef = pathMatch ? decodeURIComponent(pathMatch[1]) : new URLSearchParams(location.search).get('ref');
+      const payload = receiptRef ? await fetchPayloadByReference(receiptRef) : decodePayload();
+      if (!payload) throw new Error('Invalid receipt.');
+      render(payload);
+    } catch (error) {
+      console.error('Could not load the shared receipt.', error);
+      document.querySelector('#error p').textContent = 'This receipt is unavailable or the link is invalid. Ask the sender to share it again.';
+      document.getElementById('error').hidden = false;
+    }
     document.getElementById('print').addEventListener('click', () => window.print());
     document.getElementById('share').addEventListener('click', async () => {
       const status = document.getElementById('status');

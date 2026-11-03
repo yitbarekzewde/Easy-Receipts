@@ -265,6 +265,9 @@ button, a, select { -webkit-tap-highlight-color: transparent; }
     .receipt-print-header { padding-bottom: 12px; border-bottom: 1px solid #777; text-align: center; }
     .receipt-print-header h1 { margin: 0 0 3px; font-size: 20px; }
     .receipt-print-header p { margin: 2px 0; }
+    .pos-receipt-qr { display: flex; justify-content: center; margin: 14px 0 4px; }
+    .pos-receipt-qr canvas { display: block; width: 200px; height: 200px; background: #fff; }
+    .pos-receipt-qr-note { margin: 0; text-align: center; font-size: 10px; text-transform: uppercase; }
     .receipt-print-table { width: 100%; margin: 15px 0; border-collapse: collapse; }
     .receipt-print-table th, .receipt-print-table td { padding: 6px 3px; border-bottom: 1px solid #ddd; text-align: left; }
     .receipt-print-table th:last-child, .receipt-print-table td:last-child { text-align: right; }

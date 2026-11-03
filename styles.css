@@ -417,6 +417,7 @@ button { padding: 14px; border-radius: 10px; border: none; font-weight: bold; cu
 .receipt-change-negative { color: #ef4444; }
 .receipt-due { color: #ef4444; font-weight: 600; font-size: 13px; margin-top: 4px; }
 .receipt-qr-section { margin-top: 15px; display: flex; justify-content: center; }
+.receipt-qr-section canvas { display: block; width: 200px; height: 200px; background: #fff; }
 .receipt-qr-note { margin-top: 10px; font-size: 10px; color: #475569; }
 .receipt-footer { text-align: center; font-size: 11px; color: #475569; margin-top: 14px; }
 .receipt-footer strong { color: var(--primary); }
