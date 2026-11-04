@@ -1984,11 +1984,7 @@ class CartManager {
             return alert(`Receipt is already saved, but its short customer link could not be published: ${error.message}`);
         }
     }
-    if (window.activeReceiptShareSnapshot?.saved) {
-        window.activeReceiptShareSnapshot = null;
-        this.updateUI();
-        receiptPayload = window.getReceiptSharePayload();
-    }
+    if (window.activeReceiptShareSnapshot?.saved) return;
     const receiptRef = receiptPayload.id === RECEIPT_REF_PENDING ? nextDailyReceiptReference() : receiptPayload.id;
     receiptPayload.id = receiptRef;
     this.updateUI();
