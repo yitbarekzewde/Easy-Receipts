@@ -1890,7 +1890,7 @@ class CartManager {
         const receiptRef = receiptPayload?.id || '';
         let receiptLink = '';
         if (receiptPayload && window.activeReceiptShareSnapshot?.saved) {
-            receiptLink = window.getReceiptShortLink();
+            receiptLink = window.getReceiptShareLink();
         }
 
         document.getElementById('receipt-ui').innerHTML = `
