@@ -127,13 +127,14 @@ function renderList() {
     list.innerHTML = staff.map(member => `
         <article class="team-member${member.active ? "" : " team-member-off"}" data-uid="${escapeHtml(member.id)}">
             <div class="team-member-head">
-                <span><strong>${escapeHtml(member.name)}</strong><small>${escapeHtml(member.email)}</small></span>
+                <span><strong>${escapeHtml(member.name)}</strong><small>${escapeHtml(member.role || "Cashier")} · ${escapeHtml(member.email)}</small></span>
                 <span class="team-badge ${member.active ? "team-badge-on" : ""}">${member.active ? "Active" : "Deactivated"}</span>
             </div>
             <div class="team-actions">
                 <button type="button" class="btn-secondary" data-action="share"><i class="fas fa-share-alt"></i> Share link</button>
                 <button type="button" class="btn-secondary" data-action="sales"><i class="fas fa-chart-line"></i> Sales</button>
                 <button type="button" class="btn-secondary" data-action="reset"><i class="fas fa-key"></i> Reset password</button>
+                <button type="button" class="btn-secondary" data-action="role">${member.role === "Manager" ? "Make cashier" : "Make manager"}</button>
                 <button type="button" class="btn-secondary" data-action="toggle">${member.active ? "Deactivate" : "Activate"}</button>
                 <button type="button" class="btn-danger" data-action="remove"><i class="fas fa-trash"></i> Remove</button>
             </div>
@@ -196,7 +197,8 @@ async function addCashier(event) {
     let created = null;
     try {
         created = await createCashierAuth(email, password, name);
-        const record = { ownerUid: signedInOwner.uid, name, email, active: true, createdAt: new Date().toISOString() };
+        const role = byId("teamRole")?.value === "Manager" ? "Manager" : "Cashier";
+        const record = { ownerUid: signedInOwner.uid, name, email, active: true, role, createdAt: new Date().toISOString() };
         try {
             await setDoc(doc(db, "staff", created.uid), record);
         } catch (error) {
@@ -238,6 +240,13 @@ async function handleAction(event) {
         if (action === "reset") {
             await sendPasswordResetEmail(auth, member.email);
             return setStatus(`Password reset email sent to ${member.email}.`);
+        }
+        if (action === "role") {
+            const role = member.role === "Manager" ? "Cashier" : "Manager";
+            await updateDoc(doc(db, "staff", member.id), {
+                ownerUid: member.ownerUid, name: member.name, email: member.email, active: member.active, role
+            });
+            setStatus(`${member.name} is now a ${role.toLowerCase()}.`);
         }
         if (action === "toggle") {
             const next = !member.active;

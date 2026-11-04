@@ -118,7 +118,7 @@
       document.getElementById('receipt').hidden = false; document.getElementById('actions').hidden = false;
     }
     try {
-      const pathMatch = location.pathname.match(/\/shared-receipts\.html\/([^/]+)\/?$/);
+      const pathMatch = location.pathname.match(/\/shared-receipts?\.html\/([^/]+)\/?$/);
       const receiptRef = pathMatch ? decodeURIComponent(pathMatch[1]) : new URLSearchParams(location.search).get('ref');
       const payload = receiptRef ? await fetchPayloadByReference(receiptRef) : decodePayload();
       if (!payload) throw new Error('Invalid receipt.');

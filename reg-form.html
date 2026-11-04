@@ -238,7 +238,8 @@
                 }
                 await signOut(auth);
                 localStorage.setItem('pendingVerificationEmail', email);
-                logActivity(username, 'Registered', 'Verification email sent to ' + email);
+                saveRegisteredUser(credential.user, username);
+                logActivity(username, 'Registered', 'Verification email sent to ' + email, credential.user.uid, email);
                 alert('Account created. Check your email for the verification code.');
                 window.location.href = 'email-verification.html';
             } catch (error) {
@@ -278,10 +279,19 @@
             return 'Could not create the account. Please try again later.';
         }
 
-        function logActivity(username, action, detail) {
+        function saveRegisteredUser(user, username) {
+            var users = JSON.parse(localStorage.getItem('registeredUsers') || '[]');
+            var existingIndex = users.findIndex(function (entry) { return entry.uid === user.uid || entry.email === user.email; });
+            var record = { uid: user.uid, username: username, email: user.email, createdAt: new Date().toISOString() };
+            if (existingIndex >= 0) users[existingIndex] = Object.assign({}, users[existingIndex], record);
+            else users.push(record);
+            localStorage.setItem('registeredUsers', JSON.stringify(users));
+        }
+
+        function logActivity(username, action, detail, userId, email) {
             var log = JSON.parse(localStorage.getItem('activityLog')) || [];
-            log.push({ username: username, action: action, detail: detail || '', timestamp: new Date().toISOString() });
-            if (log.length > 1000) log = log.slice(log.length - 1000);
+            log.push({ username: username, userId: userId || '', email: email || '', action: action, detail: detail || '', timestamp: new Date().toISOString() });
+            if (log.length > 3000) log = log.slice(log.length - 3000);
             localStorage.setItem('activityLog', JSON.stringify(log));
         }
     </script>

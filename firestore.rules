@@ -73,8 +73,9 @@ service cloud.firestore {
 
     function validStaff() {
       let data = request.resource.data;
-      return data.keys().hasOnly(['ownerUid', 'name', 'email', 'active', 'createdAt'])
+      return data.keys().hasOnly(['ownerUid', 'name', 'email', 'active', 'createdAt', 'role'])
         && data.keys().hasAll(['ownerUid', 'name', 'email', 'active'])
+        && (!('role' in data) || data.role in ['Cashier', 'Manager'])
         && data.ownerUid is string
         && data.name is string && data.name.size() > 0 && data.name.size() <= 80
         && data.email is string && data.email.size() <= 254
@@ -138,6 +139,57 @@ service cloud.firestore {
         && validStaff()
         && request.resource.data.ownerUid == resource.data.ownerUid;
       allow delete: if request.auth != null && resource.data.ownerUid == request.auth.uid;
+    }
+
+    function isShopMember(ownerUid) {
+      return request.auth != null
+        && (request.auth.uid == ownerUid || isActiveStaffOf(ownerUid));
+    }
+
+    function memberRole(ownerUid) {
+      return request.auth.uid == ownerUid
+        ? 'Owner'
+        : get(staffPath(request.auth.uid)).data.get('role', 'Cashier');
+    }
+
+    function validChatMember(ownerUid) {
+      let data = request.resource.data;
+      return data.keys().hasOnly(['name', 'role', 'reads', 'updatedAt'])
+        && data.keys().hasAll(['name', 'role', 'updatedAt'])
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 80
+        && data.role == memberRole(ownerUid)
+        && data.updatedAt is number
+        && (!('reads' in data) || data.reads is map);
+    }
+
+    function validChatMessage(ownerUid) {
+      let data = request.resource.data;
+      return data.keys().hasOnly(['kind', 'channel', 'members', 'senderUid', 'senderName', 'text', 'at'])
+        && data.keys().hasAll(['kind', 'channel', 'members', 'senderUid', 'senderName', 'text', 'at'])
+        && data.senderUid == request.auth.uid
+        && data.senderName is string && data.senderName.size() <= 80
+        && data.text is string && data.text.size() > 0 && data.text.size() <= 2000
+        && data.at is number
+        && data.channel is string && data.channel.size() <= 130
+        && data.members is list && data.members.size() <= 2
+        && ((data.kind == 'group' && data.channel == 'group' && data.members.size() == 0)
+          || (data.kind == 'direct' && data.members.size() == 2 && request.auth.uid in data.members));
+    }
+
+    // In-app chat: shops/{ownerUid}/members (roster + read state) and /messages.
+    match /shops/{ownerUid}/members/{memberUid} {
+      allow read: if isShopMember(ownerUid);
+      allow create, update: if isShopMember(ownerUid)
+        && request.auth.uid == memberUid
+        && validChatMember(ownerUid);
+      allow delete: if false;
+    }
+
+    match /shops/{ownerUid}/messages/{messageId} {
+      allow read: if isShopMember(ownerUid)
+        && (resource.data.kind == 'group' || request.auth.uid in resource.data.members);
+      allow create: if isShopMember(ownerUid) && validChatMessage(ownerUid);
+      allow update, delete: if false;
     }
 
     match /{document=**} {

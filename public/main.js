@@ -2,6 +2,8 @@ const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwxD52Ibd3FcORE
 const CUSTOMER_RECEIPT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxnzc70hmMw9G8fIPRX1eiypQfglG5Yw9in3XLVPGDx02GOzk6ibMnR2y7M7WfeaDdpUA/exec';
 const SUPPORT_ATTACHMENTS_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwojlEIYRaWg59eAwlR_3czYVDN1lrJCw8kcj13sJC4z1etfE3qj4mm-yXEMapOGWmorw/exec';
 let allowDeviceBackExit = false;
+// A receipt keeps this placeholder until Finish, so the daily counter only advances for finished receipts.
+const RECEIPT_REF_PENDING = 'Pending';
 
 function msg(message, type = 'info') {
     const existing = document.getElementById('app-message');
@@ -245,6 +247,12 @@ class AuthManager {
         const profEmail = document.getElementById('prof-email');
         if (profName) profName.innerText = profileObj.name || '';
         if (profEmail) profEmail.innerText = profileObj.email || '';
+        const profUserId = document.getElementById('prof-user-id');
+        if (profUserId) {
+            const code = window.UserCode && (profileObj.email || profileObj.name)
+                ? window.UserCode.forUser({ email: profileObj.email, username: profileObj.name }) : '';
+            profUserId.innerText = code ? 'User ID: ' + code : '';
+        }
         const displayName = document.getElementById('accountDisplayName');
         const email = document.getElementById('accountEmail');
         const emailHint = document.getElementById('accountEmailHint');
@@ -1881,19 +1889,15 @@ class CartManager {
         const receiptPayload = window.getReceiptSharePayload?.();
         const receiptRef = receiptPayload?.id || '';
         let receiptLink = '';
-        if (receiptPayload && window.activeReceiptShareSnapshot?.published) {
-            try {
-                receiptLink = window.createReceiptShareLink(receiptPayload);
-            } catch (error) {
-                console.error('Could not create the customer receipt link.', error);
-            }
+        if (receiptPayload && window.activeReceiptShareSnapshot?.saved) {
+            receiptLink = window.getReceiptShortLink();
         }
 
         document.getElementById('receipt-ui').innerHTML = `
             <div class="receipt-ui-container">
                 <h1 class="receipt-store-name">${storeName}</h1>
                 <p class="receipt-date">${new Date().toLocaleString()}</p>
-                <p class="receipt-reference">Receipt Ref: ${receiptRef}</p>
+                <p class="receipt-reference">Receipt Ref: ${receiptRef === RECEIPT_REF_PENDING ? 'Pending (press Finish)' : receiptRef}</p>
                 <div class="receipt-divider"></div>
                 <p class="receipt-client-line"><b>CLIENT:</b> ${document.getElementById('client').value || '-'}</p>
                 <table class="receipt-table">
@@ -1920,7 +1924,7 @@ class CartManager {
                         ${data.change < 0 ? `<div class="receipt-due">AMOUNT DUE: R ${Math.abs(data.change).toFixed(2)}</div>` : ''}
                     </div>` : ''}
                 <div class="receipt-qr-section"><div id="qr-place"></div></div>
-                <p class="receipt-qr-note">SCAN TO VIEW CUSTOMER RECEIPT</p>
+                ${receiptLink ? '<p class="receipt-qr-note">SCAN TO VIEW CUSTOMER RECEIPT</p>' : ''}
                 <p class="receipt-footer">This receipt is prepared by <strong>${authManager.currentUser ? authManager.currentUser.name : "Easy Receipt"}</strong></p>
             </div>`;
 
@@ -1933,12 +1937,8 @@ class CartManager {
                 console.error('Could not generate the customer receipt QR code.', error);
                 qrContainer.textContent = 'QR unavailable. Share the receipt link instead.';
             }
-        } else if (qrContainer && receiptPayload) {
-            qrContainer.textContent = window.activeReceiptShareSnapshot?.published
-                ? 'Receipt link unavailable.'
-                : window.activeReceiptShareSnapshot?.saved
-                    ? 'Receipt link not published yet.'
-                    : 'Save receipt to activate its customer QR code.';
+        } else if (qrContainer) {
+            qrContainer.replaceChildren();
         }
     }
     //==========Print and Save Receipt Logic===============
@@ -1989,7 +1989,9 @@ class CartManager {
         this.updateUI();
         receiptPayload = window.getReceiptSharePayload();
     }
-    const receiptRef = receiptPayload.id;
+    const receiptRef = receiptPayload.id === RECEIPT_REF_PENDING ? nextDailyReceiptReference() : receiptPayload.id;
+    receiptPayload.id = receiptRef;
+    this.updateUI();
     let shareUrl = '';
     const timestampStr = new Date().toLocaleString();
     const activeStore = document.getElementById('storeSelect').value;
@@ -2083,53 +2085,80 @@ class CartManager {
         return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
     }
 
+    normalizeCart(cart) {
+        return (cart || []).map(item => [
+            String(item.name || '').trim().toLowerCase(),
+            Number(item.qty) || 0,
+            Number(item.price) || 0
+        ]).sort((a, b) => String(a[0]).localeCompare(String(b[0])) || a[2] - b[2] || a[1] - b[1]);
+    }
+
     isSameCart(leftCart, rightCart) {
-        return JSON.stringify(leftCart || []) === JSON.stringify(rightCart || []);
+        return JSON.stringify(this.normalizeCart(leftCart)) === JSON.stringify(this.normalizeCart(rightCart));
     }
 
-    hasSameCustomerCartToday(clientName, cart, drafts) {
+    // Returns where an identical cart already exists for this customer: a pending draft or today's saved history.
+    findSimilarCart(clientName, cart, drafts) {
         const today = this.getLocalDateKey(new Date());
-        const sameDraft = drafts.some(draft => {
-            const draftDate = this.getLocalDateKey(draft.id || draft.timestamp);
-            return draft.client && draft.client.toLowerCase() === clientName.toLowerCase()
-                && draftDate === today
-                && this.isSameCart(draft.cart, cart);
-        });
-        if (sameDraft) return true;
-
-        const customer = customerManager.getSavedCustomers().find(savedCustomer =>
-            savedCustomer.name && savedCustomer.name.toLowerCase() === clientName.toLowerCase());
-        return Boolean(customer?.history?.some(entry => {
-            const entryDate = this.getLocalDateKey(entry.id || entry.timestamp);
-            return entryDate === today && this.isSameCart(entry.items, cart);
-        }));
+        const name = clientName.toLowerCase();
+        if (drafts.some(draft => draft.client && draft.client.toLowerCase() === name && this.isSameCart(draft.cart, cart))) return 'draft';
+        const customer = customerManager.getSavedCustomers().find(saved => saved.name && saved.name.toLowerCase() === name);
+        const inHistory = customer?.history?.some(entry =>
+            this.getLocalDateKey(entry.id || entry.timestamp) === today && this.isSameCart(entry.items, cart));
+        return inHistory ? 'history' : '';
     }
 
-    saveCurrentDraft() {
+    async saveCurrentDraft(options = {}) {
         if (this.cart.length === 0) return alert("Cart is empty!");
         const clientName = document.getElementById('client').value.trim();
         if (!clientName) return alert("Please specify a customer name before saving the draft.");
         
         const totals = this.calculateTotals();
-        const receiptId = Date.now();
         const timestampStr = new Date().toLocaleString();
         const activeStore = document.getElementById('storeSelect').value;
 
         let drafts = JSON.parse(localStorage.getItem('p3_pos_drafts') || '[]');
-        if (this.hasSameCustomerCartToday(clientName, this.cart, drafts)
-            && !confirm(`This same cart was already saved for ${clientName} today. Save it again as another entry?`)) return;
-
-        drafts.push({ 
-            id: receiptId, 
-            timestamp: timestampStr, 
-            store: activeStore, 
-            client: clientName, 
-            tax: document.getElementById('tax').value, 
-            discount: document.getElementById('discount').value, 
-            paid: document.getElementById('paid').value, 
-            online: document.getElementById('online').value, 
-            cart: [...this.cart] 
-        });
+        const finished = window.activeReceiptShareSnapshot?.saved ? window.activeReceiptShareSnapshot : null;
+        const draftReceipt = finished ? { payload: finished.payload, signature: finished.signature, saved: true, published: !!finished.published } : null;
+        // A finished receipt keeps its reference, so saving it again just refreshes its existing draft.
+        const existingDraft = draftReceipt && drafts.find(item => item.receipt?.payload?.id === draftReceipt.payload.id);
+        const similar = existingDraft ? '' : this.findSimilarCart(clientName, this.cart, drafts);
+        if (similar && !draftReceipt) {
+            // Automatic backups never nag or duplicate; only a manual save can override after confirmation.
+            if (options.auto) return;
+            const where = similar === 'draft' ? 'is already in the saved drafts' : 'was already saved today';
+            const again = await window.confirmChoice('Similar cart found',
+                `This same cart for ${clientName} ${where}. Save it again as another draft?`, 'Save again', 'Cancel');
+            if (!again) return;
+            drafts = JSON.parse(localStorage.getItem('p3_pos_drafts') || '[]');
+        }
+        const receiptId = Date.now();
+        const draftData = {
+            timestamp: timestampStr,
+            store: activeStore,
+            client: clientName,
+            tax: document.getElementById('tax').value,
+            discount: document.getElementById('discount').value,
+            paid: document.getElementById('paid').value,
+            online: document.getElementById('online').value,
+            cart: [...this.cart],
+            receipt: draftReceipt
+        };
+        if (existingDraft) {
+            Object.assign(existingDraft, draftData);
+            localStorage.setItem('p3_pos_drafts', JSON.stringify(drafts));
+            loadDrafts();
+            return alert(`Draft updated. Receipt ${draftReceipt.payload.id} keeps its reference.`);
+        }
+        if (draftReceipt) {
+            // The finished receipt is already in history, so only the draft is stored; no second ledger entry.
+            if (options.auto) return;
+            drafts.push({ id: receiptId, ...draftData });
+            localStorage.setItem('p3_pos_drafts', JSON.stringify(drafts));
+            loadDrafts();
+            return alert(`Draft saved with receipt ${draftReceipt.payload.id}.`);
+        }
+        drafts.push({ id: receiptId, ...draftData });
         localStorage.setItem('p3_pos_drafts', JSON.stringify(drafts));
         
         // Match sync log mapping
@@ -2444,7 +2473,7 @@ function closeViewsModal() {
         const clientName = document.getElementById('client')?.value?.trim();
         // Only trigger auto-draft preserve if a client name has been designated
         if (clientName) {
-            cartManager.saveCurrentDraft();
+            cartManager.saveCurrentDraft({ auto: true });
         }
     }
     document.getElementById('viewsModal').style.display = 'none';
@@ -2491,7 +2520,7 @@ function loadDrafts() {
     const deletedDrafts = JSON.parse(localStorage.getItem('p3_pos_deleted_drafts') || '[]');
     const activeHtml = drafts.length ? drafts.map(d => {
         const client = escapeDraftHtml(d.client || 'Guest');
-        return `<div class="draft-item"><span><b>${client}</b> (${escapeDraftHtml(d.timestamp)})</span><div class="draft-actions"><button type="button" class="draft-action-button" onclick="restoreDraft(${d.id})" title="Load draft" aria-label="Load draft for ${client}"><i class="fas fa-folder-open action-icon-primary"></i></button><button type="button" class="draft-action-button" onclick="deleteDraft(${d.id})" title="Move draft to recycle bin" aria-label="Delete draft for ${client}"><i class="fas fa-trash action-icon-danger"></i></button></div></div>`;
+        return `<div class="draft-item"><span><b>${client}</b> (${escapeDraftHtml(d.timestamp)})</span><div class="draft-actions"><button type="button" class="draft-action-button" onclick="restoreDraft(${d.id})" title="Load draft" aria-label="Load draft for ${client}"><i class="fas fa-folder-open action-icon-primary"></i></button><button type="button" class="draft-action-button" onclick="handleMenuClick('statements')" title="View statements" aria-label="View statements for ${client}"><i class="fas fa-file-invoice-dollar action-icon-primary"></i></button></div></div>`;
     }).join('') : '<p class="paragraph-small">No drafts available.</p>';
     const deletedHtml = deletedDrafts.length ? deletedDrafts.map(d => {
         const client = escapeDraftHtml(d.client || 'Guest');
@@ -2512,7 +2541,12 @@ function restoreDraft(id) {
     document.getElementById('discount').value = target.discount || '0.00';
     document.getElementById('paid').value = target.paid || '';
     document.getElementById('online').value = target.online || '';
+    // A draft of a finished receipt brings its reference and QR back; any other draft must not inherit the previous receipt's.
+    window.activeReceiptShareSnapshot = target.receipt?.payload
+        ? { signature: target.receipt.signature, saved: true, published: !!target.receipt.published, payload: target.receipt.payload }
+        : null;
     if (target.cart) cartManager.cart = target.cart; cartManager.render();
+    if (window.activeReceiptShareSnapshot && !window.activeReceiptShareSnapshot.published) window.ensureReceiptPublished?.();
 }
 
 function deleteDraft(id) {
@@ -2569,9 +2603,42 @@ function buildStatementRows() {
     }).join('');
 }
 
+function normalizeReceiptRef(value) {
+    return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function runReferenceSearch() {
+    renderSavedReceipts();
+    document.getElementById('view-savedReceipts')?.scrollIntoView?.({ block: 'start' });
+}
+
+document.addEventListener('click', event => {
+    if (event.target.closest('#referenceSearchBtn')) runReferenceSearch();
+    if (event.target.closest('#referenceSearchClear')) {
+        const input = document.getElementById('referenceSearchInput');
+        if (input) { input.value = ''; input.focus(); }
+        renderSavedReceipts();
+    }
+});
+document.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && event.target.id === 'referenceSearchInput') { event.preventDefault(); runReferenceSearch(); }
+});
+document.addEventListener('input', event => {
+    if (event.target.id === 'referenceSearchInput') renderSavedReceipts();
+});
+
 function renderSavedReceipts() {
-    const view = document.getElementById('savedReceiptView'), snaps = JSON.parse(localStorage.getItem('p3_pos_snapshots') || '[]');
+    const view = document.getElementById('savedReceiptView'), allSnaps = JSON.parse(localStorage.getItem('p3_pos_snapshots') || '[]');
     if (!view) return;
+    const rawQuery = document.getElementById('referenceSearchInput')?.value.trim() || '';
+    const query = normalizeReceiptRef(rawQuery);
+    // Matches the full or partial reference, with or without the dash, and the legacy ER-id form.
+    const snaps = query ? allSnaps.filter(s => normalizeReceiptRef(s.receiptRef || `ER-${s.id}`).includes(query)) : allSnaps;
+    const info = document.getElementById('referenceSearchInfo');
+    if (info) info.textContent = query ? `${snaps.length} receipt${snaps.length === 1 ? '' : 's'} found for "${rawQuery}"` : '';
+    const emptyMessage = query
+        ? `<div class="saved-receipt-empty"><i class="fas fa-receipt"></i><p>No receipt found for reference "${escapeDraftHtml(rawQuery)}".</p><span>Check the reference number and try again.</span></div>`
+        : '<div class="saved-receipt-empty"><i class="fas fa-receipt"></i><p>No saved receipts found.</p><span>Saved receipt snapshots will appear here.</span></div>';
     view.innerHTML = snaps.length ? snaps.slice().reverse().map(s => {
         const items = s.cartSnapshot || [];
         const itemsEncoded = encodeURIComponent(JSON.stringify(items));
@@ -2594,7 +2661,7 @@ function renderSavedReceipts() {
             </div>
             <button class="saved-receipt-preview" type="button" onclick="showSavedReceipt(${s.id})" title="Open receipt preview">${preview}</button>
         </article>`;
-    }).join('') : '<div class="saved-receipt-empty"><i class="fas fa-receipt"></i><p>No saved receipts found.</p><span>Saved receipt snapshots will appear here.</span></div>';
+    }).join('') : emptyMessage;
 }
 
 function renderDownloadedReceipts() {
@@ -3023,8 +3090,6 @@ window.shareReceiptAction = function() {
     if (!window.cartManager || window.cartManager.cart.length === 0) {
         return alert("Cart is empty! Add items before sharing.");
     }
-    if (!window.activeReceiptShareSnapshot?.published) return alert("Save the receipt before sharing its customer link.");
-    
     const totals = cartManager.calculateTotals();
     const client = document.getElementById('client')?.value || 'Customer';
     const store = document.getElementById('storeSelect')?.value || 'Easy Receipt';
@@ -3049,7 +3114,8 @@ window.shareReceiptAction = function() {
     } else {
         text += `*AMOUNT DUE:* R ${Math.abs(totals.change).toFixed(2)}\n`;
     }
-    text += `\nView receipt: ${window.getReceiptShareLink()}`;
+    const shareLink = window.getReceiptShareLink();
+    if (shareLink) text += `\nView receipt: ${shareLink}`;
 
     const customerName = document.getElementById('client')?.value.trim() || '';
     const selectedId = document.getElementById('customerSelect')?.value;
@@ -3078,17 +3144,16 @@ window.getReceiptShareText = function() {
     const items = cartManager.cart.map(item => `${item.name} (x${item.qty}) - R ${(parseFloat(item.price || 0) * item.qty).toFixed(2)}`).join('\n');
     const balance = totals.change >= 0 ? `CHANGE/DEPOSIT: R ${totals.change.toFixed(2)}` : `AMOUNT DUE: R ${Math.abs(totals.change).toFixed(2)}`;
     const receiptPayload = window.getReceiptSharePayload();
-    const receiptLink = window.activeReceiptShareSnapshot?.published
-        ? `\n\nView receipt: ${window.createReceiptShareLink(receiptPayload)}`
-        : '';
+    const shareLink = window.getReceiptShareLink();
+    const receiptLink = shareLink ? `\n\nView receipt: ${shareLink}` : '';
     return `${store} - Official Receipt\nReceipt Ref: ${receiptPayload.id}\nDate: ${new Date().toLocaleString()}\nClient: ${client}\n---------------------------\n${items}\n---------------------------\nTOTAL BILL: R ${totals.total.toFixed(2)}\nPAID: R ${totals.totalPaid.toFixed(2)}\n${balance}${receiptLink}`;
 };
 
-window.createReceiptShareLink = function(payload) {
+window.createReceiptShareLink = function(payload, embedded = false) {
     if (!payload || !payload.id || !Array.isArray(payload.items)) return '';
-    const receiptUrl = new URL('shared-receipt.html', window.location.href);
-    if (/^\d{8}-\d{3,}$/.test(String(payload.id))) {
-        return new URL(`/shared-receipts.html/${encodeURIComponent(payload.id)}`, window.location.origin).href;
+    const receiptUrl = new URL('https://www.receipts.lat/shared-receipt.html');
+    if (!embedded && /^\d{8}-\d{3,}$/.test(String(payload.id))) {
+        return `https://www.receipts.lat/shared-receipt.html/${encodeURIComponent(payload.id)}`;
     }
     const bytes = new TextEncoder().encode(JSON.stringify(payload));
     let binary = '';
@@ -3121,7 +3186,7 @@ window.getReceiptSharePayload = function() {
     };
     const signature = JSON.stringify(receiptData);
     let snapshot = window.activeReceiptShareSnapshot;
-    if (!snapshot || snapshot.signature !== signature) {
+    if (!snapshot || (snapshot.signature !== signature && !snapshot.saved)) {
         const keepCurrentReference = snapshot && !snapshot.saved;
         snapshot = {
             signature: signature,
@@ -3129,7 +3194,7 @@ window.getReceiptSharePayload = function() {
             published: false,
             payload: Object.assign({
                 v: 1,
-                id: keepCurrentReference ? snapshot.payload.id : nextDailyReceiptReference(),
+                id: keepCurrentReference ? snapshot.payload.id : RECEIPT_REF_PENDING,
                 createdAt: keepCurrentReference ? snapshot.payload.createdAt : new Date().toISOString()
             }, receiptData)
         };
@@ -3138,16 +3203,39 @@ window.getReceiptSharePayload = function() {
     return snapshot.payload;
 };
 
-window.getReceiptShareLink = function() {
-    if (!window.activeReceiptShareSnapshot?.published) return '';
+window.getReceiptShortLink = function() {
+    // A finished receipt always has its reference, so the short link exists even while publishing is being retried.
+    if (!window.activeReceiptShareSnapshot?.saved) return '';
     const payload = window.getReceiptSharePayload();
-    return payload ? window.createReceiptShareLink(payload) : '';
+    return payload && payload.id !== RECEIPT_REF_PENDING ? window.createReceiptShareLink(payload) : '';
+};
+
+// Shared links must open for the customer, so an unpublished receipt falls back to a self-contained link.
+window.getReceiptShareLink = function() {
+    const snapshot = window.activeReceiptShareSnapshot;
+    if (!snapshot?.saved) return '';
+    const payload = window.getReceiptSharePayload();
+    if (!payload || payload.id === RECEIPT_REF_PENDING) return '';
+    return window.createReceiptShareLink(payload, !snapshot.published);
+};
+
+window.ensureReceiptPublished = async function() {
+    const snapshot = window.activeReceiptShareSnapshot;
+    if (!snapshot?.saved || snapshot.published) return;
+    try {
+        if (typeof window.easyReceiptPublishReceipt !== 'function') throw new Error('The receipt sharing service is unavailable.');
+        await window.easyReceiptPublishReceipt(snapshot.payload, true);
+        snapshot.published = true;
+        window.cartManager?.updateUI();
+    } catch (error) {
+        console.warn('Could not publish the receipt link yet.', error);
+        window.msg?.('Online short link is not ready (sign in with Cloud storage). Sharing a self-contained link instead.', 'error');
+    }
 };
 
 window.copyReceiptLink = async function() {
-    if (!window.activeReceiptShareSnapshot?.published) return alert('Save the receipt before sharing its customer link.');
     const receiptLink = window.getReceiptShareLink();
-    if (!receiptLink) return alert('Cart is empty! Add items before sharing.');
+    if (!receiptLink) return alert('The receipt link is not ready yet. Please try again in a moment.');
     try {
         await navigator.clipboard.writeText(receiptLink);
         alert('Receipt link copied to the clipboard.');
@@ -3169,7 +3257,6 @@ window.downloadReceiptText = function() {
 };
 
 window.shareReceiptPng = async function() {
-    if (!window.activeReceiptShareSnapshot?.published) return alert('Save the receipt before sharing its customer link.');
     const receipt = document.getElementById('receipt-box');
     if (!receipt) return alert('No receipt is available to share.');
     if (!window.html2canvas) return alert('PNG sharing is unavailable because the image service did not load.');
@@ -3201,7 +3288,6 @@ window.shareReceiptPng = async function() {
 };
 
 window.shareReceiptPdf = async function() {
-    if (!window.activeReceiptShareSnapshot?.published) return alert('Save the receipt before sharing its customer link.');
     const receipt = document.getElementById('receipt-box');
     if (!receipt) return alert('No receipt is available to share.');
     if (!window.html2canvas || !window.jspdf?.jsPDF) {
@@ -3241,7 +3327,6 @@ window.shareReceiptPdf = async function() {
 };
 
 window.shareReceiptTelegram = function() {
-    if (!window.activeReceiptShareSnapshot?.published) return alert('Save the receipt before sharing its customer link.');
     const receiptLink = window.getReceiptShareLink();
     const text = `Receipt from ${document.getElementById('storeSelect')?.value || 'Easy Receipt'}`;
     window.open(`https://t.me/share/url?url=${encodeURIComponent(receiptLink)}&text=${encodeURIComponent(text)}`, '_blank');
@@ -3346,3 +3431,88 @@ window.sendReceiptByEmail = async function() {
         button.innerHTML = '<i class="fas fa-paper-plane"></i> Send Receipt';
     }
 };
+
+// ─── FINISH RECEIPT: confirm before share / download / copy / print ──────────
+window.isReceiptFinished = function() {
+    return !!window.activeReceiptShareSnapshot?.saved;
+};
+
+window.confirmChoice = function(title, text, yesLabel = 'Yes', noLabel = 'No') {
+    return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:1000001;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:16px;';
+        const box = document.createElement('div');
+        box.setAttribute('role', 'dialog');
+        box.setAttribute('aria-modal', 'true');
+        box.style.cssText = 'background:#fff;color:#1e293b;border-radius:12px;padding:22px;max-width:340px;width:100%;text-align:center;font-family:sans-serif;box-shadow:0 20px 40px rgba(0,0,0,.25);';
+        const heading = document.createElement('h3');
+        heading.style.margin = '0 0 8px';
+        heading.textContent = title;
+        const body = document.createElement('p');
+        body.style.cssText = 'margin:0 0 18px;font-size:14px;';
+        body.textContent = text;
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;gap:10px;justify-content:center;';
+        const done = answer => { overlay.remove(); resolve(answer); };
+        [[yesLabel, true, '#16a34a', '#fff'], [noLabel, false, '#e2e8f0', '#1e293b']].forEach(([label, answer, bg, fg]) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.textContent = label;
+            button.style.cssText = `padding:10px 22px;border:0;border-radius:8px;background:${bg};color:${fg};font-weight:700;cursor:pointer;`;
+            button.addEventListener('click', () => done(answer));
+            row.appendChild(button);
+        });
+        box.append(heading, body, row);
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+        row.firstChild.focus();
+    });
+};
+
+window.confirmReceiptFinished = function() {
+    return window.confirmChoice('Finish this receipt?', 'You are finished this receipt? It will be saved and given its receipt number.', 'Yes', 'No');
+};
+
+window.openProfileShortcut = function(target) {
+    authManager.closeAuthModal();
+    openView('drafts');
+    if (target === 'recycle') {
+        setTimeout(() => document.getElementById('draftView')?.querySelector('.draft-list-heading:last-of-type')?.scrollIntoView({ behavior: 'smooth' }), 50);
+    }
+};
+
+window.finishReceipt = async function() {
+    if (!window.cartManager) return false;
+    if (window.isReceiptFinished()) {
+        window.msg?.(`Receipt ${window.activeReceiptShareSnapshot.payload.id} is already finished.`);
+        return true;
+    }
+    await cartManager.saveReceipt();
+    return window.isReceiptFinished();
+};
+
+window.addEventListener('load', () => {
+    const SHARE_ACTIONS = new Set(['shareReceiptAction', 'shareReceiptTelegram', 'shareReceiptPng', 'shareReceiptPdf',
+        'shareReceiptNative', 'shareReceiptText', 'sendReceiptByEmail']);
+    ['downloadReceipt', 'downloadReceiptText', 'printReceiptOnly', 'shareReceiptAction', 'shareReceiptTelegram',
+        'shareReceiptPng', 'shareReceiptPdf', 'shareReceiptNative', 'shareReceiptText', 'sendReceiptByEmail',
+        'copyReceiptLink', 'copyReceiptText'].forEach(name => {
+        const original = window[name];
+        if (typeof original !== 'function') return;
+        const isShare = SHARE_ACTIONS.has(name);
+        window[name] = function(...args) {
+            if (!window.cartManager || window.cartManager.cart.length === 0) return original.apply(this, args);
+            const finished = window.isReceiptFinished();
+            if (finished && !isShare) return original.apply(this, args);
+            const ask = finished
+                ? window.confirmChoice('Share receipt?', 'You are finished this receipt and you want to share?', 'Yes', 'No')
+                : window.confirmReceiptFinished();
+            return ask.then(async yes => {
+                if (!yes) return undefined;
+                if (!finished && !(await window.finishReceipt())) return undefined;
+                await window.ensureReceiptPublished();
+                return original.apply(this, args);
+            });
+        };
+    });
+});

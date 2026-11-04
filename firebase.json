@@ -12,6 +12,10 @@
       {
         "source": "/shared-receipts.html/**",
         "destination": "/shared-receipt.html"
+      },
+      {
+        "source": "/shared-receipt.html/**",
+        "destination": "/shared-receipt.html"
       }
     ],
     "ignore": [

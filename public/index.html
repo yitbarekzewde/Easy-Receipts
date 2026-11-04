@@ -54,9 +54,12 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+    <script src="user-code.js"></script>
+    <script src="activity-tracker.js"></script>
     <script type="module" src="firebase-config.js"></script>
     <script type="module" src="cloud-sync.js"></script>
     <script type="module" src="team.js"></script>
+    <script type="module" src="chat.js"></script>
 </head>
 
 <body>
@@ -65,6 +68,7 @@
             <div class="menu-btn" id="menu-btn" onclick="toggleDropdown(event)">
                 <i class="fa fa-bars"></i>
                 <ul id="dropdown">
+                    <li onclick="window.easyReceiptChat ? easyReceiptChat.open() : alert('Messages are still loading. Try again in a moment.')"><i class="fas fa-comments icon-primary"></i> Messages<span class="er-chat-badge" data-chat-badge hidden>0</span></li>
                     <li onclick="handleMenuClick('statements')"><i class="fas fa-file-invoice-dollar icon-primary"></i>
                         View Statements</li>
                     <li onclick="handleMenuClick('drafts')"><i class="fas fa-save icon-primary"></i> Saved Drafts</li>
@@ -77,6 +81,8 @@
                         Management</li>
                     <li id="register-account-menu" onclick="window.location.href='reg-form.html'"><i class="fas fa-user-plus icon-primary"></i>
                         Register Account</li>
+                    <li onclick="window.location.href='dashboard.html'"><i class="fas fa-clock-rotate-left icon-primary"></i>
+                        User Activity Management</li>
                     
                     <li onclick="handleMenuClick('customers')"><i class="fas fa-users icon-primary"></i> Manage
                         Customers</li>
@@ -186,11 +192,10 @@
             <div class="flex-gap-10 mt-10">
                 <button class="btn-primary" onclick="window.downloadReceipt()"><i class="fas fa-download"></i>
                     Download</button>
-                <button class="btn-primary" onclick="cartManager.saveReceipt()"><i class="fas fa-save"></i> Save
-                    Snap</button>
+                <button class="btn-primary" onclick="window.finishReceipt()"><i class="fas fa-check-circle"></i> Finish
+                    Receipt</button>
                 <button class="btn-save" onclick="cartManager.saveCurrentDraft()"><i class="fas fa-save"></i> Save
                     Draft</button>
-                <button style="background-color: aqua;" class="add-to-customer-list" onclick="customerManager.addCustomerFromInput()"><i class="fas fa-plus"></i> Add to C List</button>
             </div>
 
             <div class="drafts-section mt-20 full-width">
@@ -264,8 +269,13 @@
                     <div class="profile-info-text">
                         <p class="account-display-name" id="prof-name"></p>
                         <p id="prof-email" class="text-muted"></p>
+                        <p id="prof-user-id" class="text-muted" style="font-weight:700;"></p>
                         <span class="pic-hint">Click the photo to update it</span>
                     </div>
+                </div>
+                <div class="flex-gap-10 mt-10">
+                    <button type="button" class="btn-primary" onclick="openProfileShortcut('drafts')"><i class="fas fa-folder-open"></i> Drafts</button>
+                    <button type="button" class="btn-primary" onclick="openProfileShortcut('recycle')"><i class="fas fa-trash-restore"></i> Recycle Bin</button>
                 </div>
 
                 <div class="account-tabs" role="tablist" aria-label="Account sections">
@@ -333,6 +343,10 @@
                             <div>
                                 <label class="small-label" for="teamEmail">Cashier email</label>
                                 <input type="email" id="teamEmail" autocomplete="off" required>
+                            </div>
+                            <div>
+                                <label class="small-label" for="teamRole">Role</label>
+                                <select id="teamRole"><option value="Cashier">Cashier</option><option value="Manager">Manager</option></select>
                             </div>
                             <div>
                                 <label class="small-label" for="teamPassword">Password (8+ characters)</label>
@@ -483,6 +497,12 @@
             </div>
             <div id="view-savedReceipts" class="view-panel">
                 <h3 class="modal-heading">Saved Receipts</h3>
+                <div class="ref-serch">
+                    <input type="search" id="referenceSearchInput" placeholder="Search by reference (e.g. 04112026-001)" autocomplete="off" aria-label="Search receipts by reference">
+                    <button type="button" class="btn btn-primary" id="referenceSearchBtn"><i class="fas fa-search"></i> Search</button>
+                    <button type="button" class="btn btn-muted" id="referenceSearchClear">Clear</button>
+                </div>
+                <div id="referenceSearchInfo" class="paragraph-small"></div>
                 <div id="savedReceiptView"></div>
             </div>
             <div id="view-ordering" class="view-panel">

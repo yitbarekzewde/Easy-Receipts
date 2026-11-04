@@ -206,13 +206,13 @@
                     return;
                 }
                 localStorage.setItem('isLoggedIn', 'true');
-                localStorage.setItem('currentUser', JSON.stringify({ username: credential.user.displayName || credential.user.email, email: credential.user.email }));
+                localStorage.setItem('currentUser', JSON.stringify({ uid: credential.user.uid, username: credential.user.displayName || credential.user.email, email: credential.user.email }));
                 localStorage.setItem('p3_user_profile', JSON.stringify({
                     name: credential.user.displayName || credential.user.email,
                     email: credential.user.email,
                     provider: 'email'
                 }));
-                logActivity(credential.user.email, 'Logged In', 'Signed in successfully');
+                logActivity(credential.user.displayName || credential.user.email, 'Logged In', 'Signed in successfully', credential.user.uid, credential.user.email);
                 await notifyAuthEvent('login-success', {
                     idToken: await credential.user.getIdToken(),
                     device: await getDeviceDetails()
@@ -220,7 +220,7 @@
                 window.location.href = 'index.html';
             } catch (error) {
                 loginAttemptInProgress = false;
-                logActivity(email, 'Failed Login', 'Incorrect email or password');
+                logActivity(email, 'Failed Login', 'Incorrect email or password', '', email);
                 void notifyAuthEvent('login-failed', { email: email });
                 alert('Incorrect email or password. Please try again.');
             }
@@ -273,10 +273,10 @@
             };
         }
 
-        function logActivity(username, action, detail) {
+        function logActivity(username, action, detail, userId, email) {
             var log = JSON.parse(localStorage.getItem('activityLog')) || [];
-            log.push({ username: username, action: action, detail: detail || '', timestamp: new Date().toISOString() });
-            if (log.length > 1000) log = log.slice(log.length - 1000);
+            log.push({ username: username, userId: userId || '', email: email || '', action: action, detail: detail || '', timestamp: new Date().toISOString() });
+            if (log.length > 3000) log = log.slice(log.length - 3000);
             localStorage.setItem('activityLog', JSON.stringify(log));
         }
     </script>
