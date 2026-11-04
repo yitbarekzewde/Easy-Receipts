@@ -18,7 +18,10 @@
     .storage-notice { margin: 0 0 18px; padding: 12px 14px; border-radius: 8px; background: #eef6ff; color: #23476b; font-size: 13px; line-height: 1.5; }
     .muted { color: var(--muted); font-size: 12px; }
     .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 24px; }
-    .stat-card { background: #fff; border-radius: 10px; padding: 16px 18px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); border-left: 5px solid var(--green); }
+    .stat-card { display: block; width: 100%; text-align: left; font: inherit; background: #fff; border-radius: 10px; padding: 16px 18px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); border: 0; border-left: 5px solid var(--green); cursor: pointer; transition: box-shadow .15s, transform .15s; }
+    .stat-card:hover { box-shadow: 0 3px 10px rgba(0,0,0,0.14); transform: translateY(-1px); }
+    .stat-card:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+    .stat-card.active { box-shadow: 0 0 0 2px var(--blue), 0 3px 10px rgba(0,0,0,0.12); }
     .stat-card.yellow { border-left-color: var(--yellow); }
     .stat-card.red { border-left-color: var(--red); }
     .stat-card.blue { border-left-color: var(--blue); }
@@ -26,6 +29,12 @@
     .stat-card .label { color: var(--muted); font-size: 13px; margin-top: 4px; }
     .panel { background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); padding: 18px 20px; margin-bottom: 24px; overflow-x: auto; }
     .panel h2 { margin: 0 0 14px 0; font-size: 17px; display: flex; align-items: center; gap: 8px; }
+    .business-detail { margin-top: 20px; border-top: 1px solid #eee; padding-top: 16px; }
+    .business-detail h3 { margin: 0 0 12px; }
+    .business-detail h4 { margin: 20px 0 8px; }
+    .business-detail table { min-width: 640px; }
+    .business-detail-content { max-height: 480px; overflow: auto; }
+    .business-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .toolbar { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; align-items: center; }
     .toolbar input[type="text"] { flex: 1; min-width: 200px; padding: 9px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
     .toolbar select { padding: 9px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; max-width: 260px; }
@@ -95,7 +104,7 @@
 </div>
 
 <div class="wrap">
-    <p class="storage-notice"><i class="fas fa-circle-info"></i> Activity is recorded by the app on <b>this browser</b>: sign-ins, page visits, clicks, data changes (receipts, customers, stock), errors, devices and sessions. Removing records here does not delete Firebase accounts or affect other devices. Open a user's <b>support case</b> to see everything needed to help them.</p>
+    <p class="storage-notice"><i class="fas fa-circle-info"></i> Activity is recorded by the app on <b>this browser</b>: sign-ins, page visits, clicks, data changes (receipts, customers, stock), errors, devices and sessions. User and unregistered-user counts reflect records on this browser, not all Firebase accounts. Removing records here does not delete Firebase accounts or affect other devices. Open a user's <b>support case</b> to see everything needed to help them.</p>
 
     <div class="panel">
         <h2><i class="fas fa-magnifying-glass"></i> Find a User</h2>
@@ -114,7 +123,7 @@
         <div id="attentionList"></div>
     </div>
 
-    <div class="panel">
+    <div class="panel" id="usersPanel">
         <h2><i class="fas fa-users"></i> Users</h2>
         <div class="toolbar">
             <select id="sortSelect" title="Sort users">
@@ -135,7 +144,45 @@
         <div id="usersEmptyState" class="empty-state" style="display:none;">No users or activity recorded on this browser yet.</div>
     </div>
 
-    <div class="panel">
+    <div class="panel" id="businessAccountsPanel">
+        <h2><i class="fas fa-store"></i> All Accounts: Customers &amp; Receipt Transactions</h2>
+        <p class="muted">Firebase accounts and their saved customer and sales data. This sensitive information is available only to accounts granted the Firebase admin claim.</p>
+        <div class="toolbar business-actions">
+            <button type="button" class="btn btn-primary" id="loadBusinessAccounts" disabled><i class="fas fa-cloud-arrow-down"></i> Load accounts</button>
+            <button type="button" class="btn btn-muted" id="previousBusinessPage" disabled>Previous</button>
+            <button type="button" class="btn btn-muted" id="nextBusinessPage" disabled>Next</button>
+            <span class="muted" id="businessAccountsStatus" role="status">Checking Firebase sign-in…</span>
+        </div>
+        <table>
+            <thead>
+                <tr><th>Account</th><th>Email</th><th>Created</th><th>Last sign-in</th><th>Status</th><th></th></tr>
+            </thead>
+            <tbody id="businessAccountsBody"></tbody>
+        </table>
+        <div id="businessAccountsEmpty" class="empty-state" style="display:none;">Load accounts to view the Firebase user list.</div>
+        <section class="business-detail" id="businessAccountDetails" hidden>
+            <h3 id="businessAccountTitle"></h3>
+            <div class="muted" id="businessAccountDetailStatus" role="status"></div>
+            <h4>Customers <span class="muted" id="businessCustomerCount"></span></h4>
+            <div class="business-detail-content">
+                <table>
+                    <thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Balance due</th><th>Deposit</th></tr></thead>
+                    <tbody id="businessCustomersBody"></tbody>
+                </table>
+                <div class="empty-state" id="businessCustomersEmpty" style="display:none;">No saved customers.</div>
+            </div>
+            <h4>Transactions &amp; Receipts <span class="muted" id="businessReceiptCount"></span></h4>
+            <div class="business-detail-content">
+                <table>
+                    <thead><tr><th>Receipt</th><th>Date</th><th>Customer</th><th>Store</th><th>Total</th><th>Paid</th><th>Items</th></tr></thead>
+                    <tbody id="businessReceiptsBody"></tbody>
+                </table>
+                <div class="empty-state" id="businessReceiptsEmpty" style="display:none;">No saved receipt transactions.</div>
+            </div>
+        </section>
+    </div>
+
+    <div class="panel" id="activityPanel">
         <h2><i class="fas fa-list-check"></i> Activity Log <span class="muted" id="feedCount"></span></h2>
         <div class="toolbar">
             <select id="userFilter" title="Filter by user"></select>
@@ -143,6 +190,7 @@
             <select id="periodFilter" title="Filter by period">
                 <option value="all">All time</option>
                 <option value="hour">Last hour</option>
+                <option value="day">Last 24 hours</option>
                 <option value="today">Today</option>
                 <option value="week">Last 7 days</option>
                 <option value="month">Last 30 days</option>
@@ -173,5 +221,6 @@
 
 <script src="user-code.js"></script>
 <script src="activity-admin.js"></script>
+<script type="module" src="admin-business-data.js"></script>
 </body>
 </html>

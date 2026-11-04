@@ -7,6 +7,7 @@
     var DAY = 864e5;
     var feedState = { limit: 100 };
     var caseState = null;
+    var activeStat = '';
 
     function $(id) { return document.getElementById(id); }
     function read(key, fallback) {
@@ -222,6 +223,7 @@
     function periodStart(value) {
         var now = Date.now();
         if (value === 'hour') return now - 36e5;
+        if (value === 'day') return now - DAY;
         if (value === 'today') { var d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }
         if (value === 'week') return now - 7 * DAY;
         if (value === 'month') return now - 30 * DAY;
@@ -240,16 +242,20 @@
         });
         var failed24 = log.filter(function (e) { return e.action === 'Failed Login' && now - time(e) < DAY; }).length;
         var errors7 = log.filter(function (e) { return e.action === 'Error' && now - time(e) < 7 * DAY; }).length;
+        var unregistered = users.filter(function (user) { return !user.registered; }).length;
         var cards = [
-            ['blue', users.length, 'Known Users'],
-            ['', Object.keys(activeNow).length, 'Active Now (15 min)'],
-            ['', Object.keys(activeToday).length, 'Active Today'],
-            ['yellow', log.length, 'Recorded Events'],
-            ['red', failed24, 'Failed Logins (24h)'],
-            ['red', errors7, 'App Errors (7d)']
+            ['blue', users.length, 'Known Users', 'known-users'],
+            ['yellow', unregistered, 'Unregistered Users (here)', 'unregistered'],
+            ['', Object.keys(activeNow).length, 'Active Now (15 min)', 'active-now'],
+            ['', Object.keys(activeToday).length, 'Active Today', 'active-today'],
+            ['yellow', log.length, 'Recorded Events', 'events'],
+            ['red', failed24, 'Failed Logins (24h)', 'failed-logins'],
+            ['red', errors7, 'App Errors (7d)', 'app-errors']
         ];
         $('statsRow').innerHTML = cards.map(function (c) {
-            return '<div class="stat-card ' + c[0] + '"><div class="num">' + c[1] + '</div><div class="label">' + c[2] + '</div></div>';
+            var selected = activeStat === c[3];
+            return '<button type="button" class="stat-card ' + c[0] + (selected ? ' active' : '') + '" data-stat="' + c[3] + '" aria-pressed="' + selected + '" aria-label="' + esc(c[2] + ': ' + c[1]) + '">' +
+                '<div class="num">' + c[1] + '</div><div class="label">' + c[2] + '</div></button>';
         }).join('');
     }
 
@@ -268,7 +274,11 @@
         var search = $('searchInput').value.trim().toLowerCase();
         var sort = $('sortSelect').value;
         var list = users.filter(function (u) {
-            return !search || (u.username + ' ' + u.email + ' ' + u.uid + ' ' + u.code).toLowerCase().indexOf(search) > -1;
+            if (search && (u.username + ' ' + u.email + ' ' + u.uid + ' ' + u.code).toLowerCase().indexOf(search) < 0) return false;
+            if (activeStat === 'unregistered' && u.registered) return false;
+            if (activeStat === 'active-now' && (!u.stats.last || Date.now() - time(u.stats.last) >= 15 * 6e4)) return false;
+            if (activeStat === 'active-today' && (!u.stats.last || time(u.stats.last) < periodStart('today'))) return false;
+            return true;
         });
         var sorters = {
             recent: function (a, b) { return (a.stats.last ? time(a.stats.last) : 0) - (b.stats.last ? time(b.stats.last) : 0); },
@@ -281,7 +291,9 @@
         list.reverse();
         $('usersEmptyState').style.display = list.length ? 'none' : 'block';
         $('usersEmptyState').textContent = search ? 'No user matches "' + $('searchInput').value.trim() + '".' : 'No users or activity recorded on this browser yet.';
-        $('searchResultInfo').textContent = search ? list.length + ' of ' + users.length + ' users match' : users.length + ' users';
+        $('searchResultInfo').textContent = search || activeStat === 'unregistered' || activeStat === 'active-now' || activeStat === 'active-today'
+            ? list.length + ' of ' + users.length + ' users match'
+            : users.length + ' users';
         $('usersTableBody').innerHTML = list.map(function (u) {
             var online = isCurrent(u) ? '<span class="badge login">Signed in here</span>' : (u.stats.last && Date.now() - time(u.stats.last) < 15 * 6e4 ? '<span class="badge act">Recently active</span>' : '<span class="badge other">Offline</span>');
             var issues = issueScore(u);
@@ -334,6 +346,8 @@
         var previousAction = actionSelect.value || 'all';
         var actions = {};
         getLog().forEach(function (e) { if (e.action) actions[e.action] = 1; });
+        actions['Failed Login'] = 1;
+        actions.Error = 1;
         actionSelect.innerHTML = '<option value="all">All actions</option>' + Object.keys(actions).sort().map(function (a) {
             return '<option value="' + esc(a) + '">' + esc(a) + '</option>';
         }).join('');
@@ -365,6 +379,25 @@
         renderFeed(users);
         if (caseState && $('userModal').classList.contains('show')) { renderCaseReceipts(); renderCaseTimeline(); }
     }
+
+    $('statsRow').addEventListener('click', function (event) {
+        var card = event.target.closest('[data-stat]');
+        if (!card) return;
+        var selectedStat = card.getAttribute('data-stat');
+        activeStat = activeStat === selectedStat ? '' : selectedStat;
+        var isUserStat = ['known-users', 'unregistered', 'active-now', 'active-today'].indexOf(selectedStat) !== -1;
+        if (isUserStat) {
+            $('searchInput').value = '';
+        } else if (activeStat) {
+            $('userFilter').value = 'all';
+            $('actionFilter').value = activeStat === 'failed-logins' ? 'Failed Login' : activeStat === 'app-errors' ? 'Error' : 'all';
+            $('periodFilter').value = activeStat === 'failed-logins' ? 'day' : activeStat === 'app-errors' ? 'week' : 'all';
+            $('activitySearchInput').value = '';
+            feedState.limit = 100;
+        }
+        renderAll();
+        (isUserStat ? $('usersPanel') : $('activityPanel')).scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
 
     function findUser(key) {
         return buildUsers().filter(function (u) { return u.key === key; })[0];
