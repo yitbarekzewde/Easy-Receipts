@@ -1237,7 +1237,8 @@ class StockManager {
 
         this.setStoredStock(items);
         inventoryPriceManager.registerOrderingItem(preparedItem.name, preparedItem.sellPrice, preparedItem.costPrice);
-        this.renderStockTable();
+        th
+        is.renderStockTable();
         this.closeStockItemForm();
         this.renderLowStockAlert();
         alert('Stock item saved successfully.');
@@ -2516,7 +2517,7 @@ function loadDrafts() {
     const deletedDrafts = JSON.parse(localStorage.getItem('p3_pos_deleted_drafts') || '[]');
     const activeHtml = drafts.length ? drafts.map(d => {
         const client = escapeDraftHtml(d.client || 'Guest');
-        return `<div class="draft-item"><span><b>${client}</b> (${escapeDraftHtml(d.timestamp)})</span><div class="draft-actions"><button type="button" class="draft-action-button" onclick="restoreDraft(${d.id})" title="Load draft" aria-label="Load draft for ${client}"><i class="fas fa-folder-open action-icon-primary"></i></button><button type="button" class="draft-action-button" onclick="handleMenuClick('statements')" title="View statements" aria-label="View statements for ${client}"><i class="fas fa-file-invoice-dollar action-icon-primary"></i></button></div></div>`;
+        return `<div class="draft-item"><span><b>${client}</b> (${escapeDraftHtml(d.timestamp)})</span><div class="draft-actions"><button type="button" class="draft-action-button" onclick="restoreDraft(${d.id})" title="Load draft" aria-label="Load draft for ${client}"><i class="fas fa-folder-open action-icon-primary"></i></button><button type="button" class="draft-action-button" onclick="openView('statements', ${d.id})" title="View drafted receipt" aria-label="View drafted receipt for ${client}"><i class="fas fa-file-invoice-dollar action-icon-primary"></i></button><button type="button" class="draft-action-button" onclick="deleteDraft(${d.id})" title="Move draft to recycle bin" aria-label="Delete draft for ${client}"><i class="fas fa-trash action-icon-danger"></i></button></div></div>`;
     }).join('') : '<p class="paragraph-small">No drafts available.</p>';
     const deletedHtml = deletedDrafts.length ? deletedDrafts.map(d => {
         const client = escapeDraftHtml(d.client || 'Guest');
@@ -2580,24 +2581,142 @@ function permanentlyDeleteDraft(id) {
     loadDrafts();
 }
 
-function buildStatementRows() {
-    const tbody = document.getElementById('statement-rows'); if (!tbody) return;
+function buildStatementRows(draftId) {
+    const statementView = document.getElementById('statementView');
+    if (!statementView) return;
     const drafts = JSON.parse(localStorage.getItem('p3_pos_drafts') || '[]');
-    const snaps = JSON.parse(localStorage.getItem('p3_pos_snapshots') || '[]');
-    const rows = [...drafts.map(x => ({ ...x, type: 'draft' })), ...snaps.map(x => ({ ...x, type: 'snap' }))].sort((a, b) => (b.id || 0) - (a.id || 0));
-    if (!rows.length) { tbody.innerHTML = `<tr><td colspan="4" class="text-muted">No entries discovered.</td></tr>`; return; }
-    tbody.innerHTML = rows.map(d => {
-        let itemsReport = '', totalVal = parseFloat(d.total || d.paid || 0);
-        let currentCart = d.cart || d.cartSnapshot || [];
-        
-        if (currentCart.length) {
-            itemsReport = currentCart.map(i => `• ${i.name} (x${i.qty}) @ R${parseFloat(i.price || 0).toFixed(2)}`).join('<br>');
-        } else {
-            itemsReport = 'No product listings';
+    if (draftId !== undefined) {
+        const draft = drafts.find(item => String(item.id) === String(draftId));
+        if (!draft) {
+            statementView.innerHTML = '<p class="paragraph-small">This draft is no longer available.</p>';
+            return;
         }
-        return `<tr><td class="nowrap">${d.timestamp || ''}</td><td><b>${d.client || 'N/A'}</b><br><small class="text-muted">Store: ${d.store || 'N/A'}</small></td><td class="paragraph-small" style="font-family:monospace;">${itemsReport}</td><td class="right" style="font-weight:bold;color:var(--dark);">R ${totalVal.toFixed(2)}</td></tr>`;
-    }).join('');
+
+        const cart = Array.isArray(draft.cart) ? draft.cart : [];
+        const subtotal = cart.reduce((sum, item) => sum + (Number(item.price) || 0) * (Number(item.qty) || 0), 0);
+        const discount = subtotal * ((Number(draft.discount) || 0) / 100);
+        const tax = (subtotal - discount) * ((Number(draft.tax) || 0) / 100);
+        const total = subtotal - discount + tax;
+        const paid = Number(draft.paid) || 0;
+        const online = Number(draft.online) || 0;
+        const due = total - paid - online;
+        const receiptReference = draft.receipt?.payload?.id;
+        const itemsHtml = cart.length ? cart.map(item => {
+            const quantity = Number(item.qty) || 0;
+            const price = Number(item.price) || 0;
+            return `<tr><td class="left">${escapeDraftHtml(item.name || 'Item')}</td><td class="center">${quantity}</td><td class="right">R ${(price * quantity).toFixed(2)}</td></tr>`;
+        }).join('') : '<tr><td colspan="3">No items in this draft.</td></tr>';
+
+        statementView.innerHTML = `
+            <div class="receipt-ui-container">
+                <h2 class="receipt-store-name">${escapeDraftHtml(draft.store || 'My Store')}</h2>
+                <div class="receipt-date">${escapeDraftHtml(draft.timestamp || '')}</div>
+                ${receiptReference ? `<div class="receipt-date">Receipt: ${escapeDraftHtml(receiptReference)}</div>` : ''}
+                <div class="receipt-divider"></div>
+                <div class="receipt-client-line"><b>Customer:</b> ${escapeDraftHtml(draft.client || 'Guest')}</div>
+                <table class="receipt-table">
+                    <thead><tr><th class="left">Item</th><th class="center">Qty</th><th class="right">Amount</th></tr></thead>
+                    <tbody>${itemsHtml}</tbody>
+                </table>
+                <div class="receipt-summary-row"><span>Subtotal</span><span>R ${subtotal.toFixed(2)}</span></div>
+                ${discount ? `<div class="receipt-summary-row discount"><span>Discount</span><span>- R ${discount.toFixed(2)}</span></div>` : ''}
+                ${tax ? `<div class="receipt-summary-row"><span>Tax</span><span>R ${tax.toFixed(2)}</span></div>` : ''}
+                <div class="receipt-total-row"><span>Total</span><span>R ${total.toFixed(2)}</span></div>
+                <div class="receipt-divider"></div>
+                <div class="receipt-summary-row"><span>Paid</span><span>R ${(paid + online).toFixed(2)}</span></div>
+                <div class="receipt-summary-row"><span>${due > 0 ? 'Amount due' : 'Change'}</span><span>R ${Math.abs(due).toFixed(2)}</span></div>
+            </div>
+            <div class="draft-actions">
+                <button type="button" class="btn-primary" onclick="downloadDraftReceipt(${draft.id})"><i class="fas fa-download"></i> Download receipt</button>
+                <button type="button" class="btn-secondary" onclick="shareDraftReceipt(${draft.id})"><i class="fas fa-share-alt"></i> Share receipt</button>
+            </div>`;
+        return;
+    }
+
+    const snapshots = JSON.parse(localStorage.getItem('p3_pos_snapshots') || '[]');
+    const rows = [...drafts.map(item => ({ ...item, type: 'draft' })), ...snapshots.map(item => ({ ...item, type: 'snap' }))]
+        .sort((a, b) => (b.id || 0) - (a.id || 0));
+    if (!rows.length) {
+        statementView.innerHTML = '<p class="paragraph-small">No entries discovered.</p>';
+        return;
+    }
+    statementView.innerHTML = `<div class="modal-scroll"><table class="receipt-table"><thead><tr><th>Date</th><th>Customer / Store</th><th>Items</th><th class="right">Paid</th></tr></thead><tbody>${rows.map(item => {
+        const cart = item.cart || item.cartSnapshot || [];
+        const itemsHtml = cart.length
+            ? cart.map(cartItem => `${escapeDraftHtml(cartItem.name || 'Item')} (x${Number(cartItem.qty) || 0}) @ R${(Number(cartItem.price) || 0).toFixed(2)}`).join('<br>')
+            : 'No product listings';
+        const paid = Number(item.paid ?? item.total) || 0;
+        return `<tr><td>${escapeDraftHtml(item.timestamp || '')}</td><td><b>${escapeDraftHtml(item.client || 'N/A')}</b><br><small>Store: ${escapeDraftHtml(item.store || 'N/A')}</small></td><td>${itemsHtml}</td><td class="right">R ${paid.toFixed(2)}</td></tr>`;
+    }).join('')}</tbody></table></div>`;
 }
+
+function getDraftReceiptForAction(id) {
+    const draft = JSON.parse(localStorage.getItem('p3_pos_drafts') || '[]')
+        .find(item => String(item.id) === String(id));
+    const receipt = document.querySelector('#statementView .receipt-ui-container');
+    if (!draft || !receipt) {
+        alert('Open the saved draft receipt before using this action.');
+        return null;
+    }
+    return { draft, receipt };
+}
+
+function getDraftReceiptShareText(draft) {
+    const cart = Array.isArray(draft.cart) ? draft.cart : [];
+    const subtotal = cart.reduce((sum, item) => sum + (Number(item.price) || 0) * (Number(item.qty) || 0), 0);
+    const discount = subtotal * ((Number(draft.discount) || 0) / 100);
+    const tax = (subtotal - discount) * ((Number(draft.tax) || 0) / 100);
+    const total = subtotal - discount + tax;
+    const paid = (Number(draft.paid) || 0) + (Number(draft.online) || 0);
+    const items = cart.map(item => `- ${item.name || 'Item'} x${Number(item.qty) || 0}: R ${((Number(item.price) || 0) * (Number(item.qty) || 0)).toFixed(2)}`).join('\n');
+    return `Receipt from ${draft.store || 'My Store'}\nCustomer: ${draft.client || 'Guest'}\n${draft.timestamp || ''}\n\n${items || 'No items in this draft.'}\n\nTotal: R ${total.toFixed(2)}\nPaid: R ${paid.toFixed(2)}\n${total > paid ? `Amount due: R ${(total - paid).toFixed(2)}` : `Change: R ${(paid - total).toFixed(2)}`}`;
+}
+
+window.downloadDraftReceipt = async function(id) {
+    const receiptData = getDraftReceiptForAction(id);
+    if (!receiptData) return;
+    if (!window.html2canvas) return alert('Receipt download is unavailable because the image service did not load.');
+    try {
+        const canvas = await html2canvas(receiptData.receipt, { scale: 3, backgroundColor: '#ffffff' });
+        const link = document.createElement('a');
+        link.href = canvas.toDataURL('image/png');
+        link.download = `receipt-${receiptData.draft.receipt?.payload?.id || receiptData.draft.id}.png`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+    } catch (error) {
+        console.error('Draft receipt download failed:', error);
+        alert('Could not download the draft receipt. Please try again.');
+    }
+};
+
+window.shareDraftReceipt = async function(id) {
+    const receiptData = getDraftReceiptForAction(id);
+    if (!receiptData) return;
+    const text = getDraftReceiptShareText(receiptData.draft);
+    try {
+        if (window.html2canvas && navigator.share) {
+            const canvas = await html2canvas(receiptData.receipt, { scale: 3, backgroundColor: '#ffffff' });
+            const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+            if (!blob) throw new Error('Could not create receipt image.');
+            const file = new File([blob], `receipt-${receiptData.draft.receipt?.payload?.id || receiptData.draft.id}.png`, { type: 'image/png' });
+            if (!navigator.canShare || navigator.canShare({ files: [file] })) {
+                await navigator.share({ title: 'Receipt', text, files: [file] });
+                return;
+            }
+        }
+        if (navigator.share) {
+            await navigator.share({ title: 'Receipt', text });
+            return;
+        }
+        window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+    } catch (error) {
+        if (error.name !== 'AbortError') {
+            console.error('Draft receipt sharing failed:', error);
+            alert('Could not share the draft receipt. Please try again.');
+        }
+    }
+};
 
 function normalizeReceiptRef(value) {
     return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -2815,7 +2934,7 @@ window.shareToWhatsApp = function() {
 };
 
 
-function openView(type) {
+function openView(type, draftId) {
     const modal = document.getElementById('viewsModal');
     document.querySelectorAll('#viewsModal .view-panel').forEach(v => v.classList.remove('active'));
     
@@ -2846,7 +2965,7 @@ function openView(type) {
             }
         }
     }
-    if (type === 'statements') buildStatementRows();
+    if (type === 'statements') buildStatementRows(draftId);
     if (type === 'drafts') loadDrafts();
     if (type === 'downloads') renderDownloadedReceipts();
     if (type === 'savedReceipts') renderSavedReceipts();

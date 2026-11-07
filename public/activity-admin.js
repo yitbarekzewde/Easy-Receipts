@@ -370,12 +370,62 @@
         $('moreFeed').style.display = rows.length > shown.length ? 'inline-block' : 'none';
     }
 
+    function sharedRows(users) {
+        var rows = [];
+        users.forEach(function (user) {
+            user.entries.forEach(function (e) {
+                if (e.action !== 'Receipt Shared') return;
+                var r = e.receipt || {};
+                rows.push({ entry: e, key: user.key, user: user.username || user.email || '—', ref: r.ref || '', client: r.client || '', store: r.store || '', total: r.total, channel: r.channel || '', timestamp: e.timestamp });
+            });
+        });
+        rows.sort(function (a, b) { return time(b.entry) - time(a.entry); });
+        return rows;
+    }
+
+    function filteredShared(users) {
+        var term = $('sharedSearch').value.trim().toLowerCase();
+        var channel = $('sharedChannel').value;
+        var start = periodStart($('sharedPeriod').value);
+        return sharedRows(users).filter(function (r) {
+            if (channel !== 'all' && r.channel !== channel) return false;
+            if (start && time(r.entry) < start) return false;
+            return !term || (r.ref + ' ' + r.client + ' ' + r.store + ' ' + r.user).toLowerCase().indexOf(term) > -1;
+        });
+    }
+
+    function renderShared(users) {
+        var select = $('sharedChannel');
+        var current = select.value;
+        var channels = [];
+        sharedRows(users).forEach(function (r) { if (r.channel && channels.indexOf(r.channel) === -1) channels.push(r.channel); });
+        channels.sort();
+        select.innerHTML = '<option value="all">All channels</option>' + channels.map(function (c) { return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('');
+        select.value = channels.indexOf(current) > -1 ? current : 'all';
+        var rows = filteredShared(users);
+        $('sharedCount').textContent = rows.length + ' shared';
+        $('sharedEmptyState').style.display = rows.length ? 'none' : 'block';
+        $('sharedTableBody').innerHTML = rows.slice(0, 200).map(function (r) {
+            var id = encodeURIComponent(r.entry.timestamp + '|' + r.entry.detail);
+            return '<tr><td data-label="When">' + fmt(r.timestamp) + '</td>' +
+                '<td data-label="User">' + esc(r.user) + '</td>' +
+                '<td data-label="Receipt">' + esc(r.ref || '—') + '</td>' +
+                '<td data-label="Client">' + esc(r.client || '—') + '</td>' +
+                '<td data-label="Store">' + esc(r.store || '—') + '</td>' +
+                '<td data-label="Total">' + (r.total == null || r.total === '' ? '—' : esc(r.total)) + '</td>' +
+                '<td data-label="Channel">' + esc(r.channel || '—') + '</td>' +
+                '<td data-label="Control" class="row-actions"><i class="fas fa-eye view" title="Open user case" data-act="open" data-key="' + encodeURIComponent(r.key) + '"></i>' +
+                '<i class="fas fa-trash" title="Remove this record" data-act="del-shared" data-id="' + esc(id) + '"></i></td></tr>';
+        }).join('');
+    }
+
     function renderAll() {
         var users = buildUsers();
         refreshFilterOptions(users);
         renderStats(users);
         renderAttention(users);
         renderUsers(users);
+        renderShared(users);
         renderFeed(users);
         if (caseState && $('userModal').classList.contains('show')) { renderCaseReceipts(); renderCaseTimeline(); }
     }
@@ -586,6 +636,18 @@
         if (act === 'open') { event.preventDefault(); openCase(key); return; }
         if (act === 'del-user') { removeUser(key); return; }
         if (act === 'more') { feedState.limit += 100; renderAll(); return; }
+        if (act === 'del-shared') {
+            event.stopPropagation();
+            if (!confirm('Remove this shared-receipt record from the activity log on this browser?')) return;
+            var id = decodeURIComponent(target.getAttribute('data-id'));
+            var removed = false;
+            write(LOG_KEY, getLog().filter(function (e) {
+                if (!removed && e.action === 'Receipt Shared' && (e.timestamp + '|' + e.detail) === id) { removed = true; return false; }
+                return true;
+            }));
+            renderAll();
+            return;
+        }
         if (!caseState) return;
         var user = findUser(caseState.key);
         if (!user) return;
@@ -667,6 +729,32 @@
         renderAll();
     });
     window.addEventListener('storage', renderAll);
+    ['sharedSearch', 'sharedChannel', 'sharedPeriod'].forEach(function (id) { $(id).addEventListener('input', renderAll); });
+    $('exportShared').addEventListener('click', function () {
+        var rows = filteredShared(buildUsers());
+        if (!rows.length) { toast('Nothing to export.'); return; }
+        var out = [['When', 'User', 'Receipt', 'Client', 'Store', 'Total', 'Channel']];
+        rows.forEach(function (r) { out.push([r.timestamp, r.user, r.ref, r.client, r.store, r.total, r.channel]); });
+        download('shared_receipts.csv', out.map(function (r) { return r.map(csvCell).join(','); }).join('\r\n'), 'text/csv');
+    });
+
+    var menuToggle = $('menuToggle');
+    var menuList = $('menuList');
+    function setMenu(open) {
+        menuList.hidden = !open;
+        menuToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    menuToggle.addEventListener('click', function (event) { event.stopPropagation(); setMenu(menuList.hidden); });
+    menuList.addEventListener('click', function (event) {
+        var link = event.target.closest('[data-nav]');
+        if (!link) return;
+        event.preventDefault();
+        var target = $(link.getAttribute('data-nav'));
+        setMenu(false);
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    document.addEventListener('click', function (event) { if (!menuList.hidden && !event.target.closest('.menu-wrap')) setMenu(false); });
+    document.addEventListener('keydown', function (event) { if (event.key === 'Escape') setMenu(false); });
     setInterval(renderAll, 30000);
 
     renderAll();

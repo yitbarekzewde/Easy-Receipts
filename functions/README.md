@@ -1,11 +1,35 @@
 # Global business-account dashboard
 
-The dashboard's global account view reads Firebase Authentication accounts and
-the `p3_saved_customers` / `p3_pos_snapshots` data stored under each user's
-`users/{uid}/appData` path. It exposes customer contact details and receipt
-transactions, so only Firebase users with the trusted `admin: true` custom
-claim can call the server-side functions. Firestore rules remain unchanged;
-the functions use the Admin SDK and must not be made public.
+The global dashboard uses Supabase project
+`https://jxjttlprbbobqksxtcww.supabase.co` as a protected reporting database.
+Firebase Authentication remains the account directory, and Firestore remains
+the app's source of customer and receipt data. Loading an account page mirrors
+its account summaries to Supabase; opening an account refreshes that user's
+customer and receipt summaries from Firestore, atomically replaces the
+corresponding Supabase reporting rows, and reads the dashboard result from
+Supabase. This is a reporting sync, not a migration of the app's primary data.
+
+The Supabase tables have row-level security enabled with no browser access
+policies. Only Firebase Functions use the Supabase service-role secret. The
+callable functions separately require a Firebase Auth token with the trusted
+`admin: true` custom claim. Never expose the Supabase service-role key in the
+browser, repository, or app configuration.
+
+## Set up the Supabase project
+
+1. In the Supabase SQL Editor for project
+   `https://supabase.com/dashboard/project/jxjttlprbbobqksxtcww/sql/new`, run
+   [`../supabase/migrations/20261104225000_create_business_reporting.sql`](../supabase/migrations/20261104225000_create_business_reporting.sql).
+2. In Firebase project `easy-receipts-2`, configure the Supabase service-role
+   key as a Firebase Functions secret. Run this command locally; the CLI
+   prompts for the value without putting it in the command:
+
+   ```powershell
+   npx -y firebase-tools@latest functions:secrets:set SUPABASE_SERVICE_ROLE_KEY --project easy-receipts-2
+   ```
+
+   Find the server-side key in Supabase Project Settings → API Keys. Do not use
+   the public anon/publishable key for this server operation.
 
 ## Grant dashboard access
 
@@ -34,3 +58,8 @@ npx -y firebase-tools@latest deploy --only functions --project easy-receipts-2
 
 Cloud Functions deployment may require the project to use the Blaze billing plan.
 The functions are deployed in `africa-south1`, matching the Firestore database.
+
+After deployment, sign in to the dashboard with the Firebase administrator
+account, then use **Sync & load accounts**. Account metadata is synchronized a
+page at a time; each selected account's customer and receipt data is refreshed
+when its details are opened. No Supabase public API key is needed in the browser.

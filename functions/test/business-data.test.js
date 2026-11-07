@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { buildBusinessData, parseBusinessArray } = require("../business-data");
+const { buildBusinessData, parseBusinessArray, toDatabaseRows } = require("../business-data");
 
 test("parses saved customer and receipt arrays and rejects invalid stored values", () => {
     assert.deepEqual(parseBusinessArray('[{"name":"Sam"}]', "customers"), [{ name: "Sam" }]);
@@ -17,6 +17,7 @@ test("returns customer contact and balance summaries without exposing ID numbers
         { name: "Sam", phone: "555-0100", email: "sam@example.com", due: "12.5", deposit: 2, idNumber: "private" }
     ], []);
     assert.deepEqual(result.customers, [{
+        id: "",
         name: "Sam",
         phone: "555-0100",
         email: "sam@example.com",
@@ -33,4 +34,25 @@ test("combines saved receipts with customer history without duplicate transactio
     assert.equal(result.receipts.length, 1);
     assert.equal(result.receipts[0].receiptRef, "04112026-001");
     assert.deepEqual(result.receipts[0].items, [{ name: "Tea", qty: 1, price: 15 }]);
+});
+
+test("creates Supabase reporting rows without customer identity numbers", () => {
+    const data = buildBusinessData(
+        [{ id: 21, name: "Sam", phone: "555-0100", due: 4, idNumber: "private" }],
+        [{ id: 42, receiptRef: "04112026-042", createdAt: "2026-11-04T10:00:00Z", client: "Sam", total: 10, paid: 10, cartSnapshot: [{ name: "Tea", qty: 1, price: 10 }] }]
+    );
+    const rows = toDatabaseRows("firebase-uid", {
+        email: "admin@example.com",
+        displayName: "Admin",
+        createdAt: "2026-11-01T10:00:00Z",
+        lastSignInAt: ""
+    }, data);
+
+    assert.equal(rows.account.uid, "firebase-uid");
+    assert.equal(rows.customers[0].customer_key, "21");
+    assert.equal(rows.customers[0].due, 4);
+    assert.equal("idNumber" in rows.customers[0], false);
+    assert.equal(rows.receipts[0].receipt_key, "42");
+    assert.equal(rows.receipts[0].receipt_ref, "04112026-042");
+    assert.equal(rows.receipts[0].items[0].name, "Tea");
 });

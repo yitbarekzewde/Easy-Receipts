@@ -23,6 +23,7 @@ function parseBusinessArray(value, key) {
 
 function customerSummary(customer) {
     return {
+        id: customer.id == null ? "" : String(customer.id),
         name: String(customer.name || ""),
         phone: String(customer.phone || ""),
         email: String(customer.email || ""),
@@ -82,4 +83,45 @@ function buildBusinessData(customerRecords, receiptRecords) {
     };
 }
 
-module.exports = { buildBusinessData, parseBusinessArray };
+function timestampOrNull(value) {
+    if (!value) return null;
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? null : new Date(parsed).toISOString();
+}
+
+function toDatabaseRows(uid, account, businessData) {
+    return {
+        account: {
+            uid,
+            email: account.email || null,
+            display_name: account.displayName || null,
+            disabled: Boolean(account.disabled),
+            created_at: timestampOrNull(account.createdAt),
+            last_sign_in_at: timestampOrNull(account.lastSignInAt),
+            synced_at: new Date().toISOString()
+        },
+        customers: businessData.customers.map((customer, index) => ({
+            customer_key: String(customer.id != null && String(customer.id) !== ""
+                ? customer.id
+                : `legacy-${index}-${String(customer.name || "customer").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-")}`).slice(0, 200),
+            name: customer.name,
+            phone: customer.phone,
+            email: customer.email,
+            due: customer.due,
+            deposit: customer.deposit
+        })),
+        receipts: businessData.receipts.map((receipt, index) => ({
+            receipt_key: String(receipt.id || receipt.receiptRef || `legacy-${index}`).slice(0, 200),
+            receipt_ref: receipt.receiptRef || null,
+            created_at: timestampOrNull(receipt.createdAt),
+            timestamp_text: receipt.timestamp || null,
+            customer: receipt.customer || null,
+            store: receipt.store || null,
+            total: receipt.total,
+            paid: receipt.paid,
+            items: receipt.items
+        }))
+    };
+}
+
+module.exports = { buildBusinessData, parseBusinessArray, toDatabaseRows };
