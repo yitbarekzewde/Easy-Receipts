@@ -93,3 +93,12 @@ for (const file of ['main.js', path.join('public', 'main.js')]) {
         assert.ok(JSON.parse(storage.get('p3_auto_prices')).changed);
     });
 }
+
+for (const file of ['index.html', path.join('public', 'index.html')]) {
+    test(`product and price edit controls in ${file}`, () => {
+        const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+        assert.match(source, /id="priceManagementEdit"[^>]*onclick="inventoryPriceManager\.startPriceManagementEdit\(\)"/);
+        assert.match(source, /id="priceManagementDoneBar"[^>]*hidden/);
+        assert.match(source, /onclick="inventoryPriceManager\.finishPriceManagementEdit\(\)">Done<\/button>/);
+    });
+}

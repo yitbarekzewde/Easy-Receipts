@@ -85,3 +85,12 @@ for (const file of ['main.js', path.join('public', 'main.js')]) {
         assert.match(alerts.at(-1), /payment method/);
     });
 }
+
+for (const file of ['index.html', path.join('public', 'index.html')]) {
+    test(`customer history entry point in ${file}`, () => {
+        const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+        assert.match(source, /class="btn-primary account-customer-toggle"[^>]*onclick="customerManager\.toggleProfileCustomerHistory\(this\)"/);
+        assert.match(source, /id="profileCustomerHistoryScreen"[^>]*hidden/);
+        assert.match(source, /id="profileCustomerHistory"/);
+    });
+}

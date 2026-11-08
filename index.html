@@ -265,6 +265,11 @@
                     <div class="profile-info-text">
                         <p class="account-display-name" id="prof-name"></p>
                         <p id="prof-email" class="text-muted"></p>
+                        <div id="emailVerificationNotice" class="email-verification-notice" role="alert" aria-live="polite" hidden>
+                            <p id="emailVerificationMessage"></p>
+                            <button type="button" class="btn-primary" onclick="authManager.sendVerificationEmail()">Verify email</button>
+                            <p id="emailVerificationStatus" class="account-status" aria-live="polite"></p>
+                        </div>
                         <p id="prof-user-id" class="text-muted" style="font-weight:700;"></p>
                         <span class="pic-hint">Click the photo to update it</span>
                     </div>
@@ -320,8 +325,14 @@
                     </form>
 
                     <hr class="section-divider">
-                    <h4 class="section-subheading"><i class="fas fa-users action-icon-primary"></i> Customer accounts & transaction history</h4>
-                    <div id="profileCustomerHistory"></div>
+                    <button type="button" class="btn-primary account-customer-toggle" aria-expanded="false" aria-controls="profileCustomerHistoryScreen" onclick="customerManager.toggleProfileCustomerHistory(this)"><i class="fas fa-users"></i> Customer accounts &amp; transaction history</button>
+                    <section id="profileCustomerHistoryScreen" class="profile-customer-screen" aria-label="Customer accounts and transaction history" hidden>
+                        <div class="profile-customer-screen-header">
+                            <h3 class="modal-heading">Customer accounts &amp; transaction history</h3>
+                            <button type="button" class="btn-secondary" onclick="customerManager.toggleProfileCustomerHistory(document.querySelector('.account-customer-toggle'))">Back to profile</button>
+                        </div>
+                        <div id="profileCustomerHistory"></div>
+                    </section>
                     <button type="button" class="btn-danger account-signout" onclick="authManager.logoutUser()"><i class="fas fa-right-from-bracket"></i> Sign out</button>
                 </section>
 
@@ -624,20 +635,22 @@
 
             <div id="view-priceMgmt" class="view-panel">
                 <h3 class="modal-heading"><i class="fas fa-tags"></i> Price & Product Management</h3>
-                <p class="paragraph-small">Modify custom item base prices stored within your browser auto-complete index
-                    layout below:</p>
-                <div class="scrollable-x">
+                <p class="paragraph-small">Review the products and prices used for automatic suggestions. Select Edit to make changes.</p>
+                <button type="button" id="priceManagementEdit" class="btn-primary price-management-edit" onclick="inventoryPriceManager.startPriceManagementEdit()">Edit</button>
+                <div class="scrollable-x price-management-table-wrap">
                     <table class="price-mgmt-table">
                         <thead>
                             <tr>
                                 <th>Item Name</th>
                                 <th>Sell Price (R)</th>
                                 <th>Cost Price (R)</th>
-                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="price-management-rows"></tbody>
                     </table>
+                </div>
+                <div id="priceManagementDoneBar" class="price-management-done-bar" hidden>
+                    <button type="button" class="btn-primary" onclick="inventoryPriceManager.finishPriceManagementEdit()">Done</button>
                 </div>
             </div>
 
