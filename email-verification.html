@@ -15,7 +15,6 @@
         input { border: 1px solid #b8c9c1; }
         button { margin-top: 16px; border: 0; background: #176b52; color: #fff; font-weight: 700; cursor: pointer; }
         button:disabled { opacity: .6; cursor: wait; }
-        .secondary { background: transparent; color: #176b52; border: 1px solid #176b52; }
         #status { min-height: 24px; margin-top: 16px; font-weight: 700; }
         .error { color: #a33a31; }
         .success { color: #176b52; }
@@ -25,77 +24,79 @@
 <body>
     <main class="card">
         <h1>Verify your email</h1>
-        <p>Enter the one-time code sent to your email address before signing in.</p>
-        <form id="verification-form">
+        <p>Check your inbox and click the verification link before signing in.</p>
+        <form id="resend-form">
             <label for="email">Email address</label>
             <input id="email" type="email" autocomplete="email" required>
-            <label for="otp">Verification code</label>
-            <input id="otp" inputmode="numeric" autocomplete="one-time-code" minlength="4" required>
-            <button id="verify-button" type="submit">Verify email</button>
+            <label for="password">Password</label>
+            <input id="password" type="password" autocomplete="current-password" required>
+            <button id="resend-button" type="submit">Resend verification email</button>
         </form>
-        <button id="resend-button" class="secondary" type="button">Resend code</button>
         <div id="status" aria-live="polite"></div>
         <p><a href="login.html">Back to login</a></p>
     </main>
-    <script>
-        const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwxD52Ibd3FcOREtqmCgPgoNcRmKzDlKQVBui9Ea0nRl75MEihx_Fwfvm8dpG_wn_tCtg/exec';
+    <script type="module">
+        import { auth } from './firebase-config.js';
+        import { reload, sendEmailVerification, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js';
+
         const emailInput = document.getElementById('email');
-        const otpInput = document.getElementById('otp');
+        const passwordInput = document.getElementById('password');
         const status = document.getElementById('status');
         const pendingEmail = localStorage.getItem('pendingVerificationEmail') || '';
         emailInput.value = pendingEmail;
 
-        document.getElementById('verification-form').addEventListener('submit', async function (event) {
+        if (new URLSearchParams(window.location.search).has('verified')) {
+            localStorage.removeItem('pendingVerificationEmail');
+            passwordInput.closest('form').hidden = true;
+            showStatus('Your email has been verified. You can now sign in.', false);
+        } else if (new URLSearchParams(window.location.search).has('sendFailed')) {
+            showStatus('We could not send the verification email. Enter your password to try again.', true);
+        }
+
+        document.getElementById('resend-form').addEventListener('submit', async function (event) {
             event.preventDefault();
             setBusy(true);
+            let signedInUser = null;
             try {
-                const result = await verifyRegistrationOTP(emailInput.value.trim(), otpInput.value.trim());
-                if (!result || !result.success) throw new Error(result && result.message ? result.message : 'Verification failed.');
-                localStorage.setItem('verifiedEmail', emailInput.value.trim().toLowerCase());
-                localStorage.removeItem('pendingVerificationEmail');
-                showStatus('Email verified successfully. You can now log in.', false);
-                setTimeout(() => { window.location.href = 'login.html'; }, 900);
+                const credential = await signInWithEmailAndPassword(auth, emailInput.value.trim(), passwordInput.value);
+                signedInUser = credential.user;
+                await reload(signedInUser);
+                if (signedInUser.emailVerified) {
+                    localStorage.removeItem('pendingVerificationEmail');
+                    showStatus('This email is already verified. You can sign in.', false);
+                    return;
+                }
+                await sendEmailVerification(signedInUser, {
+                    url: new URL('email-verification.html?verified=1', window.location.href).toString()
+                });
+                localStorage.setItem('pendingVerificationEmail', emailInput.value.trim());
+                showStatus('A verification link was sent. Check your inbox and click the link before signing in.', false);
             } catch (error) {
-                showStatus(error.message || 'Verification failed. Please try again.', true);
-                setBusy(false);
-            }
-        });
-
-        document.getElementById('resend-button').addEventListener('click', async function () {
-            if (!emailInput.value.trim()) { showStatus('Enter your email address first.', true); return; }
-            setBusy(true);
-            try {
-                const result = await sendRegistrationOTP(emailInput.value.trim());
-                if (!result || !result.success) throw new Error(result && result.message ? result.message : 'Could not send the code.');
-                showStatus('A new verification code was sent.', false);
-            } catch (error) {
-                showStatus(error.message || 'Could not send the code.', true);
+                showStatus(getResendErrorMessage(error), true);
             } finally {
+                passwordInput.value = '';
+                if (signedInUser && auth.currentUser) {
+                    try {
+                        await signOut(auth);
+                    } catch (error) {
+                        console.error('Could not sign out after sending verification email.', error);
+                        showStatus('The verification email was sent, but signing out failed. Please sign out before continuing.', true);
+                    }
+                }
                 setBusy(false);
             }
         });
 
-        async function sendRegistrationOTP(userEmail) {
-            return await postRequest({ action: 'sendOTP', email: userEmail });
-        }
-
-        async function verifyRegistrationOTP(userEmail, enteredOtp) {
-            return await postRequest({ action: 'verifyOTP', email: userEmail, otp: enteredOtp });
-        }
-
-        async function postRequest(payload) {
-            const response = await fetch(APPS_SCRIPT_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                body: JSON.stringify(payload)
-            });
-            if (!response.ok) throw new Error('The verification service is unavailable. Please try again later.');
-            try { return await response.json(); }
-            catch (error) { throw new Error('The verification service returned an invalid response. Please try again later.'); }
+        function getResendErrorMessage(error) {
+            if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found') {
+                return 'The email or password is incorrect.';
+            }
+            if (error.code === 'auth/too-many-requests') return 'Too many attempts. Please wait and try again later.';
+            return error.message || 'Could not resend the verification email. Please try again.';
         }
 
         function setBusy(isBusy) {
-            document.querySelectorAll('button').forEach(button => { button.disabled = isBusy; });
+            document.getElementById('resend-button').disabled = isBusy;
         }
 
         function showStatus(message, isError) {

@@ -36,6 +36,14 @@ test("combines saved receipts with customer history without duplicate transactio
     assert.deepEqual(result.receipts[0].items, [{ name: "Tea", qty: 1, price: 15 }]);
 });
 
+test("does not report customer payments as sales receipts", () => {
+    const result = buildBusinessData([{ name: "Sam", history: [
+        { id: 1, total: 15, paid: 0, items: [] },
+        { id: 2, type: "payment", amount: 10, total: 10, paid: 10, items: [] }
+    ] }], []);
+    assert.deepEqual(result.receipts.map(receipt => receipt.id), ["1"]);
+});
+
 test("creates Supabase reporting rows without customer identity numbers", () => {
     const data = buildBusinessData(
         [{ id: 21, name: "Sam", phone: "555-0100", due: 4, idNumber: "private" }],

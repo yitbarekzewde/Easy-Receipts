@@ -17,6 +17,40 @@
     };
     const escapeHtml = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
     const money = value => `R ${Number(value || 0).toFixed(2)}`;
+    let scanAudioContext = null;
+    function prepareScanSound() {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return null;
+        try {
+            if (!scanAudioContext) scanAudioContext = new AudioContextClass();
+            if (scanAudioContext.state === 'suspended') {
+                scanAudioContext.resume().catch(error => console.warn('Could not enable barcode scan sound:', error));
+            }
+            return scanAudioContext;
+        } catch (error) {
+            console.warn('Could not prepare barcode scan sound:', error);
+            return null;
+        }
+    }
+    function playScanSound() {
+        const context = prepareScanSound();
+        if (!context) return;
+        try {
+            const oscillator = context.createOscillator();
+            const gain = context.createGain();
+            const now = context.currentTime;
+            oscillator.frequency.setValueAtTime(880, now);
+            gain.gain.setValueAtTime(0.0001, now);
+            gain.gain.exponentialRampToValueAtTime(0.12, now + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
+            oscillator.connect(gain);
+            gain.connect(context.destination);
+            oscillator.start(now);
+            oscillator.stop(now + 0.14);
+        } catch (error) {
+            console.warn('Could not play barcode scan sound:', error);
+        }
+    }
     function nextDailyReceiptReference(date = new Date()) {
         const day = String(date.getDate()).padStart(2, '0');
         const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -264,6 +298,7 @@
             elements.posBarcodeInput.select();
             return;
         }
+        playScanSound();
         const isBox = Boolean(product.caseBarcode && product.caseBarcode.toLowerCase() === code);
         if (fromCamera) {
             promptCameraQuantity(product, isBox ? product.unitsPerBox : 1);
@@ -604,7 +639,8 @@
         readArray('p3_pos_snapshots')
             .filter(entry => String(entry.client || '').trim().toLowerCase() === key)
             .forEach(entry => addPurchase(entry, entry.items || entry.cartSnapshot || entry.cart));
-        (Array.isArray(customer?.history) ? customer.history : []).forEach(entry => addPurchase(entry, entry.items || entry.cartSnapshot || entry.cart));
+        (Array.isArray(customer?.history) ? customer.history : []).filter(entry => entry.type !== 'payment')
+            .forEach(entry => addPurchase(entry, entry.items || entry.cartSnapshot || entry.cart));
 
         return [...purchases.values()].sort((left, right) => {
             const leftTime = Date.parse(left.timestamp) || 0;
@@ -642,6 +678,7 @@
             setScanMessage('Camera scanning is not supported here. Use a USB or Bluetooth barcode scanner.', 'error');
             return;
         }
+        prepareScanSound();
         try {
             cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
             elements.cameraPreview.srcObject = cameraStream;

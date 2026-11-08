@@ -11,6 +11,11 @@
 // Fields:
 //   - initialized: bool (required), set when the first device seeds the account
 //
+// Document: statementShares/{token}
+//   - token: 48 lowercase hex characters, bearer secret for an immutable share
+//   - ownerUid: authenticated creator's UID
+//   - payload: JSON string, at most 200,000 characters
+//
 //
 // Document: staff/{cashierUid}  (owner-managed cashier accounts)
 // Fields: ownerUid, name, email, active (required); createdAt (optional)
@@ -48,6 +53,16 @@ service cloud.firestore {
         && receiptRef.matches('^[0-9]{8}-[0-9]{3,}$')
         && data.payload is string
         && data.payload.size() <= 200000;
+    }
+
+    function validStatementShare(token) {
+      return token.matches('^[0-9a-f]{48}$')
+        && request.resource.data.keys().hasOnly(['ownerUid', 'payload'])
+        && request.resource.data.keys().hasAll(['ownerUid', 'payload'])
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.payload is string
+        && request.resource.data.payload.size() > 0
+        && request.resource.data.payload.size() <= 200000;
     }
 
     function staffPath(uid) {
@@ -115,6 +130,15 @@ service cloud.firestore {
         && request.resource.data.ownerUid == request.auth.uid;
       allow delete: if request.auth != null
         && resource.data.ownerUid == request.auth.uid;
+    }
+
+    match /statementShares/{token} {
+      allow get: if token.matches('^[0-9a-f]{48}$');
+      allow list: if false;
+      allow create: if request.auth != null
+        && validStatementShare(token);
+      allow update: if false;
+      allow delete: if request.auth != null && resource.data.ownerUid == request.auth.uid;
     }
 
     match /users/{uid}/syncMeta/state {

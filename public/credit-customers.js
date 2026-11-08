@@ -22,6 +22,7 @@
     };
     const money = value => `R ${Number(value || 0).toFixed(2)}`;
     const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[char]);
+    let scanAudioContext = null;
     let selectedCustomerId = '';
     let creditCart = [];
     let pendingIdPhoto = '';
@@ -33,6 +34,41 @@
     let cameraPendingItem = null;
     let cameraCatalog = [];
     const VIEWS = ['home', 'new-customer', 'accounts', 'profile'];
+
+    function prepareScanSound() {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return null;
+        try {
+            if (!scanAudioContext) scanAudioContext = new AudioContextClass();
+            if (scanAudioContext.state === 'suspended') {
+                scanAudioContext.resume().catch(error => console.warn('Could not enable barcode scan sound:', error));
+            }
+            return scanAudioContext;
+        } catch (error) {
+            console.warn('Could not prepare barcode scan sound:', error);
+            return null;
+        }
+    }
+
+    function playScanSound() {
+        const context = prepareScanSound();
+        if (!context) return;
+        try {
+            const oscillator = context.createOscillator();
+            const gain = context.createGain();
+            const now = context.currentTime;
+            oscillator.frequency.setValueAtTime(880, now);
+            gain.gain.setValueAtTime(0.0001, now);
+            gain.gain.exponentialRampToValueAtTime(0.12, now + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
+            oscillator.connect(gain);
+            gain.connect(context.destination);
+            oscillator.start(now);
+            oscillator.stop(now + 0.14);
+        } catch (error) {
+            console.warn('Could not play barcode scan sound:', error);
+        }
+    }
 
     function getCustomers() {
         try {
@@ -503,6 +539,7 @@
             byId('creditBarcodeInput').select();
             return;
         }
+        playScanSound();
         const defaultQty = found.caseBarcode && found.caseBarcode.toLowerCase() === code ? found.unitsPerBox : 1;
         if (fromCamera) {
             cameraPendingItem = found;
@@ -564,6 +601,7 @@
             setCreditScanMessage('Camera scanning is not supported here. Use a USB or Bluetooth scanner.', 'error');
             return;
         }
+        prepareScanSound();
         try {
             creditCameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
             byId('creditCameraPreview').srcObject = creditCameraStream;

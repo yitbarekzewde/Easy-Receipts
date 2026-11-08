@@ -1,6 +1,8 @@
 import {
     GoogleAuthProvider,
     onAuthStateChanged,
+    reload,
+    sendEmailVerification,
     signInWithCredential,
     signOut
 } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
@@ -43,6 +45,7 @@ let pendingWrites = new Map();
 let flushTimer = 0;
 let latestRemoteChangeAt = 0;
 let syncNoticeTimer = 0;
+window.easyReceiptHasAuthAccount = false;
 
 const CATALOG_KEYS = new Set([
     "p3_auto_prices",
@@ -55,6 +58,20 @@ const CATALOG_REFRESH_MS = 60000;
 let staffContext = null;
 let catalogTimer = 0;
 let authRun = 0;
+
+window.easyReceiptSendVerificationEmail = async () => {
+    const user = auth.currentUser;
+    if (!user || !user.email) throw new Error("Sign in with an email account before verifying your email.");
+    await reload(user);
+    if (user.emailVerified) {
+        window.authManager?.setEmailVerificationState(true);
+        return false;
+    }
+    await sendEmailVerification(user, {
+        url: new URL("email-verification.html?verified=1", import.meta.url).toString()
+    });
+    return true;
+};
 
 function getStorageMode() {
     try {
@@ -596,6 +613,20 @@ window.easyReceiptSetStorageMode = async mode => {
 };
 window.easyReceiptSignInWithGoogle = idToken =>
     signInWithCredential(auth, GoogleAuthProvider.credential(idToken));
+window.easyReceiptPublishStatement = async payload => {
+    if (!activeUid || !syncReady) throw new Error("Sign in and enable Cloud storage to share a statement.");
+    if (!payload || payload.v !== 1 || !Array.isArray(payload.entries) || !payload.entries.length) {
+        throw new Error("No statement entries were selected.");
+    }
+    const serialized = JSON.stringify(payload);
+    if (new TextEncoder().encode(serialized).length > 700000 || serialized.length > 200000) {
+        throw new Error("This statement is too large to share in one link. Select fewer entries.");
+    }
+    const bytes = crypto.getRandomValues(new Uint8Array(24));
+    const token = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+    await setDoc(doc(db, "statementShares", token), { ownerUid: activeUid, payload: serialized });
+    return `https://www.receipts.lat/shared-statement.html#${token}`;
+};
 window.easyReceiptPublishReceipt = async (payload, allowExisting = false) => {
     if (!activeUid || !syncReady) {
         throw new Error("Sign in and enable Cloud storage to publish a short receipt link.");
@@ -637,6 +668,7 @@ window.easyReceiptPublishReceipt = async (payload, allowExisting = false) => {
 onAuthStateChanged(auth, user => {
     stopSync();
     authenticatedUser = user;
+    window.easyReceiptHasAuthAccount = Boolean(user);
     staffContext = null;
     window.easyReceiptStaff = null;
     const run = ++authRun;
@@ -685,8 +717,10 @@ onAuthStateChanged(auth, user => {
             name: displayLabel,
             email: user.email || "",
             provider: user.providerData[0]?.providerId || "firebase",
+            emailVerified: user.emailVerified,
             role: staff ? "Cashier" : undefined
         }));
+        window.authManager?.setEmailVerificationState(user.emailVerified);
         const displayName = document.getElementById("user-display-name");
         if (displayName) displayName.textContent = displayLabel;
         const staffName = document.getElementById("staffName");

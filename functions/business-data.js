@@ -64,6 +64,7 @@ function buildBusinessData(customerRecords, receiptRecords) {
 
     customerRecords.forEach(customer => {
         (Array.isArray(customer.history) ? customer.history : []).forEach(record => {
+            if (record.type === "payment") return;
             const receipt = receiptSummary(record);
             const key = receipt.id || receipt.receiptRef || `${receipt.timestamp}|${receipt.store}|${receipt.total}`;
             if (!key) return;

@@ -193,6 +193,12 @@
         onAuthStateChanged(auth, async user => {
             if (loginAttemptInProgress) return;
             if (user) {
+                if (!user.emailVerified) {
+                    localStorage.setItem('pendingVerificationEmail', user.email || '');
+                    await signOut(auth);
+                    window.location.href = 'email-verification.html';
+                    return;
+                }
                 const staff = await getActiveStaff(user);
                 if (loginAttemptInProgress) return;
                 if (staff) {
@@ -227,6 +233,13 @@
         async function signIn(email, password) {
             try {
                 var credential = await signInWithEmailAndPassword(auth, email, password);
+                if (!credential.user.emailVerified) {
+                    await signOut(auth);
+                    localStorage.setItem('pendingVerificationEmail', credential.user.email);
+                    alert('Please verify your email before logging in.');
+                    window.location.href = 'email-verification.html';
+                    return;
+                }
                 var staffRecord = await getActiveStaff(credential.user);
                 if (staffRecord) {
                     localStorage.setItem('isLoggedIn', 'true');
@@ -237,13 +250,6 @@
                         role: 'Cashier'
                     }));
                     window.location.href = 'sales.html';
-                    return;
-                }
-                if (!credential.user.emailVerified) {
-                    await signOut(auth);
-                    localStorage.setItem('pendingVerificationEmail', credential.user.email);
-                    alert('Please verify your email before logging in.');
-                    window.location.href = 'email-verification.html';
                     return;
                 }
                 localStorage.setItem('isLoggedIn', 'true');

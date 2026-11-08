@@ -193,9 +193,8 @@
     </script>
     <script type="module">
         import { auth } from './firebase-config.js';
-        import { createUserWithEmailAndPassword, updateProfile, signOut } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js';
+        import { createUserWithEmailAndPassword, sendEmailVerification, updateProfile, signOut } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js';
 
-        const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwxD52Ibd3FcOREtqmCgPgoNcRmKzDlKQVBui9Ea0nRl75MEihx_Fwfvm8dpG_wn_tCtg/exec';
         let registrationInProgress = false;
 
         document.getElementById('reg-form').addEventListener('submit', function (event) {
@@ -224,50 +223,41 @@
 
         async function createAccount(username, email, password) {
             var submitButton = document.querySelector('#reg-form button[type="submit"]');
+            var createdUser = null;
             registrationInProgress = true;
             submitButton.disabled = true;
             submitButton.classList.add('loading');
             submitButton.querySelector('.submit-label').textContent = 'Creating account...';
             try {
                 var credential = await createUserWithEmailAndPassword(auth, email, password);
+                createdUser = credential.user;
                 await updateProfile(credential.user, { displayName: username });
-                var otpResult = await sendRegistrationOTP(email);
-                if (!otpResult || !otpResult.success) {
-                    throw new Error(otpResult && otpResult.message ? otpResult.message : 'Could not send verification code.');
-                }
-                await signOut(auth);
                 localStorage.setItem('pendingVerificationEmail', email);
+                await sendEmailVerification(credential.user, {
+                    url: new URL('email-verification.html?verified=1', window.location.href).toString()
+                });
+                await signOut(auth);
                 saveRegisteredUser(credential.user, username);
                 logActivity(username, 'Registered', 'Verification email sent to ' + email, credential.user.uid, email);
-                alert('Account created. Check your email for the verification code.');
+                alert('Account created. Check your email and click the verification link before signing in.');
                 window.location.href = 'email-verification.html';
             } catch (error) {
+                if (createdUser && !createdUser.emailVerified) {
+                    try {
+                        await signOut(auth);
+                    } catch (signOutError) {
+                        console.error('Could not sign out after registration.', signOutError);
+                    }
+                    localStorage.setItem('pendingVerificationEmail', email);
+                    window.location.href = 'email-verification.html?sendFailed=1';
+                    return;
+                }
                 alert(getAuthErrorMessage(error));
                 registrationInProgress = false;
                 submitButton.disabled = false;
                 submitButton.classList.remove('loading');
                 submitButton.querySelector('.submit-label').textContent = 'Create Account';
             }
-        }
-
-        async function sendRegistrationOTP(userEmail) {
-            return await postRequest({ action: 'sendOTP', email: userEmail });
-        }
-
-        async function postRequest(payload) {
-            var response;
-            try {
-                response = await fetch(APPS_SCRIPT_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify(payload)
-                });
-            } catch (error) {
-                throw new Error('Could not reach the verification service. Please try again later.');
-            }
-            if (!response.ok) throw new Error('The verification service is unavailable. Please try again later.');
-            try { return await response.json(); }
-            catch (error) { throw new Error('The verification service returned an invalid response. Please try again later.'); }
         }
 
         function getAuthErrorMessage(error) {

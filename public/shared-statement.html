@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <title>Shared statement | Easy Receipt</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; padding: 20px; font-family: system-ui, sans-serif; background: #f1f5f9; color: #0f172a; }
+        main { max-width: 860px; margin: auto; background: white; padding: 24px; border-radius: 12px; }
+        h1 { margin-top: 0; }
+        .entry { border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin: 12px 0; }
+        .entry p { margin: 5px 0; }
+        button { border: 0; border-radius: 8px; background: #f97316; color: white; padding: 10px 16px; font-weight: bold; cursor: pointer; }
+        #status { color: #475569; }
+        @media print { button { display: none; } body { padding: 0; background: white; } }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>Customer statement</h1>
+        <p id="status" role="status">Loading statement...</p>
+        <div id="statement" hidden>
+            <p id="customer"></p>
+            <p id="created"></p>
+            <div id="entries"></div>
+            <button type="button" onclick="window.print()">Print statement</button>
+        </div>
+    </main>
+    <script type="module">
+        import { doc, getDoc } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+        import { db } from "./firebase-config.js";
+
+        const status = document.getElementById('status');
+        const money = value => `R ${(Number(value) || 0).toFixed(2)}`;
+        function line(container, text) {
+            const element = document.createElement('p');
+            element.textContent = text;
+            container.appendChild(element);
+        }
+        try {
+            const token = location.hash.slice(1);
+            if (!/^[0-9a-f]{48}$/.test(token)) throw new Error('Invalid statement link.');
+            const snapshot = await getDoc(doc(db, 'statementShares', token));
+            if (!snapshot.exists()) throw new Error('Statement not found.');
+            const payload = JSON.parse(snapshot.data().payload);
+            if (payload.v !== 1 || typeof payload.customer !== 'string' || !Array.isArray(payload.entries) || !payload.entries.length) throw new Error('Invalid statement data.');
+            document.getElementById('customer').textContent = `Customer: ${payload.customer}`;
+            document.getElementById('created').textContent = `Shared: ${payload.createdAt || ''}`;
+            const container = document.getElementById('entries');
+            for (const entry of payload.entries) {
+                const card = document.createElement('section');
+                card.className = 'entry';
+                line(card, entry.type === 'payment' ? 'Payment' : (entry.store || 'Transaction'));
+                line(card, `Date: ${entry.timestamp || 'Not recorded'}`);
+                if (entry.type === 'payment') {
+                    line(card, `Payment: ${money(entry.amount)} | Method: ${entry.method || 'Not specified'}`);
+                    if (entry.remainingDue != null) line(card, `Due after payment: ${money(entry.remainingDue)}`);
+                } else {
+                    if (entry.reference) line(card, `Reference: ${entry.reference}`);
+                    line(card, `Total: ${money(entry.total)} | Paid: ${money(entry.paid)}`);
+                    for (const item of Array.isArray(entry.items) ? entry.items : []) {
+                        line(card, `${item.name || 'Item'} × ${Number(item.qty) || 0} @ ${money(item.price)}`);
+                    }
+                }
+                container.appendChild(card);
+            }
+            status.textContent = '';
+            document.getElementById('statement').hidden = false;
+        } catch (error) {
+            console.error('Could not load shared statement.', error);
+            status.textContent = 'This statement is unavailable or the link is invalid. Ask the sender to share it again.';
+        }
+    </script>
+</body>
+</html>

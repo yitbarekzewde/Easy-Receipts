@@ -247,6 +247,7 @@ class AuthManager {
         const profEmail = document.getElementById('prof-email');
         if (profName) profName.innerText = profileObj.name || '';
         if (profEmail) profEmail.innerText = profileObj.email || '';
+        this.renderEmailVerificationNotice(profileObj);
         const profUserId = document.getElementById('prof-user-id');
         if (profUserId) {
             const code = window.UserCode && (profileObj.email || profileObj.name)
@@ -274,6 +275,59 @@ class AuthManager {
         if (role) role.value = ['Owner', 'Manager', 'Cashier'].includes(profileObj.role) ? profileObj.role : 'Owner';
         
         this.applyAvatarEverywhere(profileObj.picture || null);
+    }
+    renderEmailVerificationNotice(profileObj = this.currentUser) {
+        const notice = document.getElementById('emailVerificationNotice');
+        const message = document.getElementById('emailVerificationMessage');
+        const status = document.getElementById('emailVerificationStatus');
+        const needsVerification = window.easyReceiptHasAuthAccount === true
+            && profileObj?.emailVerified === false
+            && Boolean(profileObj.email);
+        if (notice) notice.hidden = !needsVerification;
+        if (message) message.textContent = needsVerification
+            ? `Dear ${profileObj.name || 'user'}, your email is not verified. Please verify your email now.`
+            : '';
+        if (!needsVerification && status) {
+            status.textContent = '';
+            status.classList.remove('account-status-error');
+        }
+    }
+    setEmailVerificationState(emailVerified) {
+        if (!this.currentUser) return;
+        this.currentUser = { ...this.currentUser, emailVerified: Boolean(emailVerified) };
+        localStorage.setItem('p3_user_profile', JSON.stringify(this.currentUser));
+        this.renderEmailVerificationNotice();
+    }
+    async sendVerificationEmail() {
+        const button = document.querySelector('#emailVerificationNotice button');
+        const status = document.getElementById('emailVerificationStatus');
+        if (!window.easyReceiptSendVerificationEmail) {
+            if (status) {
+                status.textContent = 'Email verification is not ready. Please reload and try again.';
+                status.classList.add('account-status-error');
+            }
+            return;
+        }
+        if (button) button.disabled = true;
+        if (status) {
+            status.textContent = 'Sending verification email...';
+            status.classList.remove('account-status-error');
+        }
+        try {
+            const sent = await window.easyReceiptSendVerificationEmail();
+            if (status) status.textContent = sent
+                ? 'Verification email sent. Check your inbox and click the link.'
+                : 'Your email is already verified.';
+            if (!sent) this.setEmailVerificationState(true);
+        } catch (error) {
+            console.error('Could not send verification email.', error);
+            if (status) {
+                status.textContent = error.message || 'Could not send verification email. Please try again.';
+                status.classList.add('account-status-error');
+            }
+        } finally {
+            if (button) button.disabled = false;
+        }
     }
     loadUserData() {
         this.loadSettings();
@@ -390,7 +444,11 @@ class AuthManager {
         openView('profile');
         cartManager.updateUI();
     }
-    closeAuthModal() { document.getElementById('authModal').style.display = 'none'; }
+    closeAuthModal() {
+        const screen = document.getElementById('profileCustomerHistoryScreen');
+        if (screen && !screen.hidden) customerManager.toggleProfileCustomerHistory(document.querySelector('.account-customer-toggle'));
+        document.getElementById('authModal').style.display = 'none';
+    }
     openAuthModal(section = 'profile') {
         document.getElementById('authModal').style.display = 'flex';
         if (this.currentUser) {
@@ -649,6 +707,11 @@ class CustomerManager {
             .filter(Boolean);
         if (!views.length) return;
         const customers = this.getSavedCustomers();
+        const paymentMethods = [...new Set(customers.flatMap(customer =>
+            (Array.isArray(customer.depositPayments) ? customer.depositPayments : [])
+                .map(payment => String(payment.method || '').trim())
+                .filter(method => method && !['cash', 'online'].includes(method.toLowerCase()))
+        ))].sort((a, b) => a.localeCompare(b));
         const summary = document.getElementById('customerBalanceSummary');
         if (summary) {
             const totalDue = customers.reduce((total, customer) => total + Number(customer.due || 0), 0);
@@ -658,11 +721,33 @@ class CustomerManager {
                 <div class="balance-total" style="color:#16a34a;">Total Deposits<strong>R ${totalDeposit.toFixed(2)}</strong></div>`;
         }
         
+        views.forEach(view => {
         const customerHistoryHtml = customers.length
             ? customers.map(c => {
                 let historyHtml = '';
-                if (c.history && c.history.length) {
+                const history = Array.isArray(c.history) ? c.history.slice() : [];
+                const legacyPayments = (Array.isArray(c.depositPayments) ? c.depositPayments : [])
+                    .filter(payment => !payment.historyId)
+                    .map(payment => ({ type: 'payment', amount: payment.amount, method: payment.method, timestamp: payment.timestamp, legacy: true }));
+                const entries = history.concat(legacyPayments).map((entry, index) => ({ ...entry, statementIndex: index }))
+                    .sort((a, b) => {
+                        const first = Date.parse(a.timestamp) || (typeof a.id === 'number' ? a.id : 0);
+                        const second = Date.parse(b.timestamp) || (typeof b.id === 'number' ? b.id : 0);
+                        return second - first || b.statementIndex - a.statementIndex;
+                    });
+                if (entries.length) {
                     historyHtml = `
+                    <div class="statement-share-controls">
+                        <button type="button" class="btn-primary" onclick="customerManager.toggleStatementShare(this)" aria-expanded="false">Share statement</button>
+                        <div class="statement-share-menu" hidden>
+                            <p>Anyone with the link can view these transactions. Links do not expire.</p>
+                            <button type="button" class="btn-secondary" onclick="customerManager.shareCustomerStatement(${c.id}, this, false)">Share all</button>
+                            <button type="button" class="btn-secondary" onclick="customerManager.selectStatementEntries(this)">Select statements</button>
+                            <label class="statement-select-all" hidden><input type="checkbox" onchange="customerManager.selectAllStatements(this)"> Select all statements</label>
+                            <button type="button" class="btn-primary statement-share-selected" hidden onclick="customerManager.shareCustomerStatement(${c.id}, this, true)">Share selected</button>
+                            <div class="statement-share-result" aria-live="polite"></div>
+                        </div>
+                    </div>
                     <div style="overflow-x: auto; margin-top: 12px; border: 1px solid #e2e8f0; border-radius: 8px;">
                         <table style="width:100%; border-collapse:collapse; text-align:left; font-size:13px; font-family:sans-serif;">
                             <thead>
@@ -676,7 +761,15 @@ class CustomerManager {
                                 </tr>
                             </thead>
                             <tbody>
-                                ${c.history.map(h => {
+                                ${entries.map(h => {
+                                    if (h.type === 'payment') {
+                                        const amount = Number(h.amount || h.paid || 0);
+                                        const method = h.method ? this.escapeHtml(h.method) : 'Not specified';
+                                        const date = h.timestamp ? this.escapeHtml(h.timestamp) : 'Not recorded';
+                                        const balance = Number.isFinite(Number(h.remainingDue)) && h.remainingDue !== undefined
+                                            ? `Due after payment: R ${Number(h.remainingDue).toFixed(2)}` : '—';
+                                        return `<tr><td style="padding:10px;"><label class="statement-select" hidden><input type="checkbox" value="${h.statementIndex}" data-entry="${encodeURIComponent(JSON.stringify(h))}" onchange="customerManager.updateSelectAllStatements(this)" aria-label="Select deposit payment"> Select</label>Deposit payment<br><small>Method: ${method}</small>${h.legacy ? '<br><small>Earlier record</small>' : ''}</td><td style="padding:10px;">${date}</td><td style="padding:10px;">—</td><td style="padding:10px;">R ${amount.toFixed(2)}</td><td style="padding:10px;">${balance}</td><td></td></tr>`;
+                                    }
                                     const diff = h.paid - h.total;
                                     let statusCell = '<span style="color:#64748b; font-weight:500;">Balanced</span>';
                                     if (diff < 0) statusCell = `<span style="color:#dc2626; font-weight:bold;">Due: R${Math.abs(diff).toFixed(2)}</span>`;
@@ -686,7 +779,7 @@ class CustomerManager {
 
                                     return `
                                     <tr style="border-bottom:1px solid #f1f5f9; color:#1e293b;">
-                                        <td style="padding:10px; font-weight:600; color:var(--dark);">${h.store}<br><small>Ref: ${h.receiptRef || `ER-${h.id}`}</small></td>
+                                        <td style="padding:10px; font-weight:600; color:var(--dark);"><label class="statement-select" hidden><input type="checkbox" value="${h.statementIndex}" data-entry="${encodeURIComponent(JSON.stringify(h))}" onchange="customerManager.updateSelectAllStatements(this)" aria-label="Select transaction"> Select</label>${h.store}<br><small>Ref: ${h.receiptRef || `ER-${h.id}`}</small></td>
                                         <td style="padding:10px; white-space:nowrap; color:#64748b;">${h.timestamp}</td>
                                         <td style="padding:10px; font-weight:500;">R ${parseFloat(h.total).toFixed(2)}</td>
                                         <td style="padding:10px; color:#0f766e;">R ${parseFloat(h.paid).toFixed(2)}</td>
@@ -711,46 +804,155 @@ class CustomerManager {
                 return `
                 <div class="customer-history-card">
                     <div class="customer-summary-row">
-                        <button type="button" class="customer-summary-name" onclick="customerManager.toggleCustomerDetails(${c.id})"><i class="fas fa-user-circle"></i><b>${c.name}</b></button>
+                        <button type="button" class="customer-summary-name" aria-expanded="false" aria-controls="${view.id}-customer-details-${c.id}" onclick="customerManager.toggleCustomerDetails(this)"><i class="fas fa-user-circle"></i><b>${this.escapeHtml(c.name)}</b></button>
                         <div class="customer-summary-balances">${Number(c.due || 0) > 0 ? `<span class="customer-balance-due">Due R ${Number(c.due).toFixed(2)}</span>` : Number(c.deposit || 0) > 0 ? `<span class="customer-balance-deposit">Deposit R ${Number(c.deposit).toFixed(2)}</span>` : '<span class="customer-balance-balanced">Balanced</span>'}</div>
                         <div class="draft-actions" style="display:flex; gap:12px;">
                             <i class="fas fa-check-circle action-icon-success" style="font-size:18px; cursor:pointer; color:#16a34a;" onclick="customerManager.useCustomer('${c.name.replace(/'/g, "\\'")}')" title="Load to active workspace"></i>
                             <i class="fas fa-trash action-icon-danger" style="font-size:18px; cursor:pointer; color:#dc2626;" onclick="customerManager.deleteCustomer(${c.id})" title="Wipe account data completely"></i>
                         </div>
                     </div>
-                    <div id="customer-details-${c.id}" class="customer-details hidden">
+                    <div id="${view.id}-customer-details-${c.id}" class="customer-details hidden">
                     <div class="customer-balance-controls">
-                        <div><label for="due-${c.id}">Due amount (calculated)</label><input id="due-${c.id}" type="number" value="${Number(c.due || 0).toFixed(2)}" readonly></div>
-                        <div><label for="deposit-${c.id}">Deposit amount</label><input id="deposit-${c.id}" type="number" min="0" step="0.01" placeholder="${lastDeposit ? `Last deposit: R ${lastDeposit}` : 'Enter deposit amount'}"></div>
-                        <div><label for="deposit-method-${c.id}">Deposit method</label><select id="deposit-method-${c.id}" required><option value="">Choose method</option><option value="cash" ${c.depositMethod === 'cash' ? 'selected' : ''}>Cash</option><option value="online" ${c.depositMethod === 'online' ? 'selected' : ''}>Online</option></select></div>
-                        <button type="button" class="customer-add-btn" onclick="customerManager.updateBalance(${c.id})"><i class="fas fa-save"></i> Save Balance</button>
+                        <div><label for="${view.id}-due-${c.id}">Due amount (calculated)</label><input id="${view.id}-due-${c.id}" type="number" value="${Number(c.due || 0).toFixed(2)}" readonly></div>
+                        <div><label for="${view.id}-deposit-${c.id}">Deposit amount</label><input id="${view.id}-deposit-${c.id}" class="customer-deposit-input" type="number" min="0" step="0.01" placeholder="${lastDeposit ? `Last deposit: R ${lastDeposit}` : 'Enter deposit amount'}"></div>
+                        <div><label for="${view.id}-deposit-method-${c.id}">Deposit method</label><select id="${view.id}-deposit-method-${c.id}" class="customer-deposit-method" onchange="customerManager.toggleCustomDepositMethod(this)" required><option value="">Choose method</option><option value="cash" ${c.depositMethod === 'cash' ? 'selected' : ''}>Cash</option><option value="online" ${c.depositMethod === 'online' ? 'selected' : ''}>Online</option>${paymentMethods.map(method => `<option value="${this.escapeHtml(method)}" ${c.depositMethod === method ? 'selected' : ''}>${this.escapeHtml(method)}</option>`).join('')}<option value="__custom__">Add custom method...</option></select><div class="customer-custom-method" hidden><label for="${view.id}-custom-method-${c.id}">Custom payment method</label><input id="${view.id}-custom-method-${c.id}" class="customer-custom-method-input" type="text" maxlength="80" placeholder="Enter payment method"></div></div>
+                        <button type="button" class="customer-add-btn" onclick="customerManager.updateBalance(${c.id}, this)"><i class="fas fa-save"></i> Save Balance</button>
                     </div>
                     ${historyHtml}
                     </div>
                 </div>`;
             }).join('')
             : '<p class="paragraph-small">No registered customers or transaction history found.</p>';
-        views.forEach(view => { view.innerHTML = customerHistoryHtml; });
+        view.innerHTML = customerHistoryHtml;
+        });
     }
-    updateBalance(id) {
+    toggleStatementShare(button) {
+        const menu = button.parentElement.querySelector('.statement-share-menu');
+        menu.hidden = !menu.hidden;
+        button.setAttribute('aria-expanded', String(!menu.hidden));
+    }
+    selectStatementEntries(button) {
+        const details = button.closest('.customer-details');
+        details.querySelectorAll('.statement-select').forEach(label => { label.hidden = false; });
+        details.querySelector('.statement-share-selected').hidden = false;
+        details.querySelector('.statement-select-all').hidden = false;
+        button.hidden = true;
+    }
+    selectAllStatements(input) {
+        input.closest('.customer-details').querySelectorAll('.statement-select input').forEach(item => { item.checked = input.checked; });
+        input.indeterminate = false;
+    }
+    updateSelectAllStatements(input) {
+        const details = input.closest('.customer-details');
+        const items = Array.from(details.querySelectorAll('.statement-select input'));
+        const selected = items.filter(item => item.checked).length;
+        const all = details.querySelector('.statement-select-all input');
+        all.checked = selected === items.length && selected > 0;
+        all.indeterminate = selected > 0 && selected < items.length;
+    }
+    async shareCustomerStatement(id, button, selectedOnly) {
+        const details = button.closest('.customer-details');
+        const result = details.querySelector('.statement-share-result');
+        const customer = this.getSavedCustomers().find(item => item.id === id);
+        if (!customer) { result.textContent = 'This customer is no longer available.'; return; }
+        const history = Array.isArray(customer.history) ? customer.history.slice() : [];
+        const legacy = (Array.isArray(customer.depositPayments) ? customer.depositPayments : [])
+            .filter(payment => !payment.historyId)
+            .map(payment => ({ type: 'payment', amount: payment.amount, method: payment.method, timestamp: payment.timestamp, legacy: true }));
+        const entries = history.concat(legacy);
+        const selectedInputs = selectedOnly ? Array.from(details.querySelectorAll('.statement-select input:checked')) : [];
+        const selected = selectedOnly ? selectedInputs.map(input => Number(input.value)) : entries.map((_, index) => index);
+        if (!selected.length) { result.textContent = 'Select at least one statement to share.'; return; }
+        if (selectedInputs.some(input => !entries[Number(input.value)] || input.dataset.entry !== encodeURIComponent(JSON.stringify({ ...entries[Number(input.value)], statementIndex: Number(input.value) })))) {
+            result.textContent = 'The statements changed. Reopen this customer and select them again.';
+            return;
+        }
+        const payload = {
+            v: 1, customer: String(customer.name || ''), createdAt: new Date().toISOString(),
+            entries: selected.map(index => entries[index]).filter(Boolean).map(entry => ({
+                type: entry.type === 'payment' ? 'payment' : 'transaction',
+                timestamp: String(entry.timestamp || ''), store: String(entry.store || ''),
+                reference: String(entry.receiptRef || (entry.id ? `ER-${entry.id}` : '')),
+                total: Number(entry.total) || 0, paid: Number(entry.paid) || 0,
+                amount: Number(entry.amount || entry.paid) || 0, method: String(entry.method || ''),
+                remainingDue: entry.remainingDue == null ? null : Number(entry.remainingDue),
+                items: (Array.isArray(entry.items) ? entry.items : []).map(item => ({ name: String(item.name || 'Item'), qty: Number(item.qty) || 0, price: Number(item.price) || 0 }))
+            })).sort((a, b) => (Date.parse(b.timestamp) || 0) - (Date.parse(a.timestamp) || 0))
+        };
+        if (payload.entries.length !== selected.length) { result.textContent = 'The statements changed. Reopen this customer and select them again.'; return; }
+        button.disabled = true;
+        result.textContent = 'Creating statement link...';
+        try {
+            if (typeof window.easyReceiptPublishStatement !== 'function') throw new Error('Statement sharing is unavailable. Check your connection and try again.');
+            const link = await window.easyReceiptPublishStatement(payload);
+            result.replaceChildren();
+            const label = document.createElement('label');
+            label.textContent = 'Statement link (anyone with this link can view it):';
+            const input = document.createElement('input');
+            input.type = 'text'; input.readOnly = true; input.value = link;
+            input.setAttribute('aria-label', 'Statement link');
+            const copy = document.createElement('button');
+            copy.type = 'button'; copy.className = 'btn-secondary'; copy.textContent = 'Copy link';
+            copy.onclick = async () => {
+                try { await navigator.clipboard.writeText(link); copy.textContent = 'Copied'; }
+                catch (error) { console.error('Could not copy statement link.', error); input.select(); copy.textContent = 'Copy the selected link manually'; }
+            };
+            label.appendChild(input);
+            result.append(label, copy);
+        } catch (error) {
+            console.error('Could not share customer statement.', error);
+            result.textContent = `Could not create statement link: ${error.message}`;
+        } finally { button.disabled = false; }
+    }
+    updateBalance(id, button) {
         const customers = this.getSavedCustomers();
         const customer = customers.find(item => item.id === id);
-        if (!customer) return;
-        const depositInput = document.getElementById(`deposit-${id}`);
+        if (!customer) return alert('This customer is no longer available. Refresh the customer list.');
+        const controls = button.closest('.customer-balance-controls');
+        const depositInput = controls.querySelector('.customer-deposit-input');
         const deposit = Number(depositInput.value);
-        const depositMethod = document.getElementById(`deposit-method-${id}`)?.value || '';
-        if (!depositInput.value.trim() || !Number.isFinite(deposit) || deposit <= 0) return alert('Enter a valid deposit amount.');
-        if (!depositMethod) return alert('Choose Cash or Online before saving the deposit.');
-        customer.deposit = deposit;
+        const selectedMethod = controls.querySelector('.customer-deposit-method').value;
+        const depositMethod = selectedMethod === '__custom__' ? controls.querySelector('.customer-custom-method-input').value.trim() : selectedMethod;
+        if (!depositInput.value.trim() || !Number.isFinite(deposit) || deposit <= 0 || !Number.isSafeInteger(Math.round(deposit * 100)) || Math.abs(deposit * 100 - Math.round(deposit * 100)) > 1e-7) return alert('Enter a valid deposit amount greater than zero with at most two decimal places.');
+        if (!depositMethod || depositMethod === '__custom__') return alert('Choose a payment method or enter a custom method before saving the deposit.');
+        const dueCents = Math.round(Number(customer.due || 0) * 100);
+        const creditCents = Math.round(Number(customer.deposit || 0) * 100);
+        const paymentCents = Math.round(deposit * 100);
+        if (!Number.isSafeInteger(dueCents) || dueCents < 0 || !Number.isSafeInteger(creditCents) || creditCents < 0 || !Number.isSafeInteger(creditCents + paymentCents)) return alert('The customer balance is invalid or too large. Check the account before saving.');
+        const appliedCents = Math.min(dueCents, paymentCents);
+        customer.due = (dueCents - appliedCents) / 100;
+        customer.deposit = (creditCents + paymentCents - appliedCents) / 100;
         customer.depositMethod = depositMethod;
+        const timestamp = new Date().toISOString();
+        const paymentId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        customer.history = Array.isArray(customer.history) ? customer.history : [];
+        customer.history.push({ id: paymentId, type: 'payment', timestamp, store: 'Deposit payment', amount: deposit, paid: deposit, total: deposit, items: [], method: depositMethod, remainingDue: customer.due });
         customer.depositPayments = Array.isArray(customer.depositPayments) ? customer.depositPayments : [];
-        customer.depositPayments.push({ amount: deposit, method: depositMethod, timestamp: new Date().toISOString() });
+        customer.depositPayments.push({ amount: deposit, method: depositMethod, timestamp, historyId: paymentId });
+        const viewId = button.closest('#customersListView, #profileCustomerHistory').id;
         this.setSavedCustomers(customers);
         this.renderCustomersList();
+        this.renderSelectedCustomerBalance();
+        const details = document.getElementById(`${viewId}-customer-details-${id}`);
+        const nameButton = details?.closest('.customer-history-card')?.querySelector('.customer-summary-name');
+        if (nameButton) this.toggleCustomerDetails(nameButton);
+        alert('Deposit payment saved.');
     }
-    toggleCustomerDetails(id) {
-        const details = document.getElementById(`customer-details-${id}`);
-        if (details) details.classList.toggle('hidden');
+    toggleCustomDepositMethod(select) {
+        const custom = select.closest('.customer-balance-controls').querySelector('.customer-custom-method');
+        custom.hidden = select.value !== '__custom__';
+        if (!custom.hidden) custom.querySelector('input').focus();
+    }
+    toggleProfileCustomerHistory(button) {
+        const list = document.getElementById('profileCustomerHistoryScreen');
+        list.hidden = !list.hidden;
+        button.setAttribute('aria-expanded', String(!list.hidden));
+    }
+    toggleCustomerDetails(button) {
+        const details = document.getElementById(button.getAttribute('aria-controls'));
+        if (!details) return;
+        details.classList.toggle('hidden');
+        button.setAttribute('aria-expanded', String(!details.classList.contains('hidden')));
     }
     useCustomer(name) { 
         const clientInput = document.getElementById('client');
@@ -758,7 +960,8 @@ class CustomerManager {
             clientInput.value = name; 
             if(window.cartManager) window.cartManager.updateUI(); 
         }
-        closeViewsModal(); 
+        closeViewsModal();
+        if (document.getElementById('authModal').style.display === 'flex') authManager.closeAuthModal();
     }
     
     deleteCustomer(id) {
@@ -854,7 +1057,7 @@ function formatItemName(name) {
 }
 
 class InventoryPriceManager {
-    constructor() { this.pendingApprovals = []; }
+    constructor() { this.pendingApprovals = []; this.priceManagementEditing = false; this.priceManagementSnapshot = ''; }
     getAutoPrices() {
         const stored = JSON.parse(localStorage.getItem('p3_auto_prices') || '{}');
         const prices = Object.fromEntries(Object.entries(stored).filter(([, item]) => item && item.originalName));
@@ -984,36 +1187,71 @@ class InventoryPriceManager {
     renderPriceManagementTable() {
         const tbody = document.getElementById('price-management-rows');
         if (!tbody) return;
+        if (this.priceManagementEditing) return;
         const prices = this.getAutoPrices();
         const keys = Object.keys(prices);
-        if (!keys.length) { tbody.innerHTML = `<tr><td colspan="4" class="text-muted text-center">No stored auto-fill prices found.</td></tr>`; return; }
+        const editButton = document.getElementById('priceManagementEdit');
+        const doneBar = document.getElementById('priceManagementDoneBar');
+        if (editButton) { editButton.hidden = false; editButton.disabled = !keys.length; }
+        if (doneBar) doneBar.hidden = true;
+        if (!keys.length) { tbody.innerHTML = `<tr><td colspan="3" class="text-muted text-center">No stored auto-fill prices found.</td></tr>`; return; }
         tbody.innerHTML = keys.map(k => `
-            <tr>
-                <td><input type="text" value="${cartManager.escapeHtml(formatItemName(prices[k].originalName))}" onchange="inventoryPriceManager.updateManagementKey('${k}', 'name', this.value)"></td>
-                <td><input type="number" min="0" step="0.01" value="${prices[k].price || 0}" onchange="inventoryPriceManager.updateManagementKey('${k}', 'price', this.value)"></td>
-                <td><input type="number" min="0" step="0.01" value="${prices[k].costPrice || 0}" onchange="inventoryPriceManager.updateManagementKey('${k}', 'costPrice', this.value)"></td>
-                <td><button class="btn-danger" style="padding: 2px 8px;" onclick="inventoryPriceManager.deleteManagementKey('${k}')"><i class="fas fa-trash"></i></button></td>
+            <tr data-price-key="${this.escapeAttribute(k)}">
+                <td><input type="text" data-price-field="name" aria-label="Item name" value="${this.escapeAttribute(formatItemName(prices[k].originalName))}" readonly></td>
+                <td><input type="number" data-price-field="price" aria-label="Sell price" min="0" step="0.01" value="${this.escapeAttribute(String(prices[k].price || 0))}" readonly></td>
+                <td><input type="number" data-price-field="costPrice" aria-label="Cost price" min="0" step="0.01" value="${this.escapeAttribute(String(prices[k].costPrice || 0))}" readonly></td>
             </tr>`).join('');
     }
-    updateManagementKey(key, property, value) {
-        let prices = this.getAutoPrices();
-        if (!prices[key]) return;
-        if (property === 'name') {
-            const newName = String(value || '').trim();
-            if (!newName) return;
-            const newKey = newName.toLowerCase();
-            const existingPrice = prices[key].price;
-            delete prices[key];
-            prices[newKey] = { originalName: formatItemName(newName), price: existingPrice, costPrice: prices[key].costPrice || 0 };
-        }
-        if (property === 'price') prices[key].price = Math.max(0, Number(value) || 0);
-        if (property === 'costPrice') prices[key].costPrice = Math.max(0, Number(value) || 0);
-        this.saveAutoPrices(prices);
+    startPriceManagementEdit() {
+        const tbody = document.getElementById('price-management-rows');
+        if (!tbody || this.priceManagementEditing) return;
+        this.priceManagementSnapshot = JSON.stringify(this.getAutoPrices());
+        this.priceManagementEditing = true;
+        tbody.querySelectorAll('input').forEach(input => { input.readOnly = false; });
+        document.getElementById('priceManagementEdit').hidden = true;
+        document.getElementById('priceManagementDoneBar').hidden = false;
     }
-    deleteManagementKey(key) {
-        let prices = this.getAutoPrices();
-        delete prices[key];
-        this.saveAutoPrices(prices);
+    finishPriceManagementEdit() {
+        if (!this.priceManagementEditing) return;
+        const current = this.getAutoPrices();
+        if (JSON.stringify(current) !== this.priceManagementSnapshot) {
+            alert('Products or prices changed while you were editing. Close this screen and reopen it to review the latest values.');
+            return;
+        }
+        const entries = [];
+        const names = new Set();
+        const rows = document.querySelectorAll('#price-management-rows tr[data-price-key]');
+        for (const row of rows) {
+            const nameInput = row.querySelector('[data-price-field="name"]');
+            const priceInput = row.querySelector('[data-price-field="price"]');
+            const costInput = row.querySelector('[data-price-field="costPrice"]');
+            const name = nameInput.value.trim();
+            const key = name.toLowerCase();
+            if (!name || names.has(key)) {
+                alert(!name ? 'Enter a name for every product.' : `Product names must be unique: ${name}`);
+                nameInput.focus();
+                return;
+            }
+            for (const input of [priceInput, costInput]) {
+                if (!input.value.trim() || !input.checkValidity() || !Number.isFinite(Number(input.value))) {
+                    alert('Enter a valid non-negative price for every product.');
+                    input.focus();
+                    return;
+                }
+            }
+            names.add(key);
+            entries.push([key, { ...current[row.dataset.priceKey], originalName: formatItemName(name), price: Number(priceInput.value), costPrice: Number(costInput.value) }]);
+        }
+        this.priceManagementEditing = false;
+        this.priceManagementSnapshot = '';
+        this.saveAutoPrices(Object.fromEntries(entries));
+    }
+    leavePriceManagementEdit() {
+        if (!this.priceManagementEditing) return true;
+        if (!confirm('Discard your unsaved product and price changes?')) return false;
+        this.priceManagementEditing = false;
+        this.priceManagementSnapshot = '';
+        return true;
     }
 }
 
@@ -1026,6 +1264,42 @@ class StockManager {
         this.cameraSessionId = 0;
         this.cameraScanPaused = false;
         this.pendingCameraScanCode = '';
+        this.scanAudioContext = null;
+    }
+
+    prepareScanSound() {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return null;
+        try {
+            if (!this.scanAudioContext) this.scanAudioContext = new AudioContextClass();
+            if (this.scanAudioContext.state === 'suspended') {
+                this.scanAudioContext.resume().catch(error => console.warn('Could not enable barcode scan sound:', error));
+            }
+            return this.scanAudioContext;
+        } catch (error) {
+            console.warn('Could not prepare barcode scan sound:', error);
+            return null;
+        }
+    }
+
+    playScanSound() {
+        const context = this.prepareScanSound();
+        if (!context) return;
+        try {
+            const oscillator = context.createOscillator();
+            const gain = context.createGain();
+            const now = context.currentTime;
+            oscillator.frequency.setValueAtTime(880, now);
+            gain.gain.setValueAtTime(0.0001, now);
+            gain.gain.exponentialRampToValueAtTime(0.12, now + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
+            oscillator.connect(gain);
+            gain.connect(context.destination);
+            oscillator.start(now);
+            oscillator.stop(now + 0.14);
+        } catch (error) {
+            console.warn('Could not play barcode scan sound:', error);
+        }
     }
 
     getStoredStock() {
@@ -1175,6 +1449,7 @@ class StockManager {
         quantityInput.value = Math.max(0, Math.floor(Number(quantityInput.value) || 0)) + 1;
         if (scanLog) scanLog.value = this.stockBatchScans.join('\n');
         if (status) status.innerHTML = `<span class="status-success">Counted ${this.stockBatchScans.length} unit${this.stockBatchScans.length === 1 ? '' : 's'} for ${this.escapeHtml(value)}.</span>`;
+        this.playScanSound();
     }
 
     clearStockBatchScans() {
@@ -1503,7 +1778,7 @@ class StockManager {
         this.processBarcode(value, mode);
     }
 
-    processBarcode(barcode, mode = 'cart', requestedQuantity) {
+    processBarcode(barcode, mode = 'cart', requestedQuantity, soundAlreadyPlayed = false) {
         const value = String(barcode || '').trim();
         const statusId = mode === 'cart' ? 'stockScanStatus' : mode === 'sale' ? 'saleScanStatus' : 'stockScannerStatus';
         const status = document.getElementById(statusId);
@@ -1521,6 +1796,7 @@ class StockManager {
             if (barcodeInput) barcodeInput.value = value;
             const scannerStatus = document.getElementById('stockScannerStatus');
             if (scannerStatus) scannerStatus.innerHTML = '<span class="status-success">Pack barcode captured. Complete and save the item.</span>';
+            this.playScanSound();
             this.closeScannerModal();
             return;
         }
@@ -1543,6 +1819,7 @@ class StockManager {
                 if (status) status.innerHTML = '<span class="status-error">Quantity must be a whole number greater than zero.</span>';
                 return;
             }
+            if (!soundAlreadyPlayed) this.playScanSound();
             const existing = cartManager.cart.find(cartItem => cartItem.name.toLowerCase() === item.name.toLowerCase());
             if (existing) { existing.qty += quantity; }
             else { cartManager.cart.push({ id: Date.now(), name: item.name, price: Number(item.sellPrice || 0), qty: quantity }); }
@@ -1559,6 +1836,7 @@ class StockManager {
             return;
         }
 
+        if (!soundAlreadyPlayed) this.playScanSound();
         if (status) status.innerHTML = `<span class="status-success">${item.name} is in stock (${item.qty} items available).</span>`;
         const inputBox = document.getElementById('stockScannerManualInput');
         if (inputBox) inputBox.value = '';
@@ -1578,6 +1856,7 @@ class StockManager {
             return;
         }
 
+        this.playScanSound();
         this.pendingCameraScanCode = barcode;
         this.cameraScanPaused = true;
         const isBoxBarcode = String(item.caseBarcode || '').trim().toLowerCase() === String(barcode).trim().toLowerCase();
@@ -1605,7 +1884,7 @@ class StockManager {
         this.pendingCameraScanCode = '';
         this.cameraScanPaused = false;
         document.getElementById('stockScanQuantityPanel')?.classList.add('hidden');
-        this.processBarcode(barcode, 'cart', quantity);
+        this.processBarcode(barcode, 'cart', quantity, true);
     }
 
     cancelCameraScanQuantity() {
@@ -1619,6 +1898,7 @@ class StockManager {
     openScannerModal(mode = 'cart') {
         const modal = document.getElementById('stockScannerModal');
         if (!modal) return;
+        this.prepareScanSound();
         this.closeScannerModal();
         this.currentScanMode = mode;
         modal.style.display = 'flex';
@@ -2427,6 +2707,11 @@ function setupDeviceBackNavigation() {
 function closeTopmostAppLayer() {
     const resumeModal = document.getElementById('autoResumeModal');
     if (resumeModal) { resumeModal.remove(); return true; }
+    const customerScreen = document.getElementById('profileCustomerHistoryScreen');
+    if (customerScreen && !customerScreen.hidden && document.getElementById('authModal').style.display === 'flex') {
+        customerManager.toggleProfileCustomerHistory(document.querySelector('.account-customer-toggle'));
+        return true;
+    }
 
     const openModals = Array.from(document.querySelectorAll('.modal, .login-modal, .modal-overlay'))
         .filter(element => {
@@ -2465,6 +2750,7 @@ function closeTopmostAppLayer() {
 }
 
 function closeViewsModal() {
+    if (!inventoryPriceManager.leavePriceManagementEdit()) return;
     // Automatically capture a draft backup if the cart has active rows before hiding the workspace view panel
     if (window.cartManager && window.cartManager.cart && window.cartManager.cart.length > 0) {
         const clientName = document.getElementById('client')?.value?.trim();
@@ -2511,22 +2797,92 @@ function escapeDraftHtml(value) {
     })[character]);
 }
 
+const draftSelection = { active: new Set(), deleted: new Set() };
+
+function updateDraftSelectionControls() {
+    ['draftsList', 'draftView'].forEach(id => {
+        const container = document.getElementById(id);
+        if (!container) return;
+        ['active', 'deleted'].forEach(type => {
+            const items = Array.from(container.querySelectorAll(`input[data-draft-selection="${type}"]`));
+            items.forEach(item => { item.checked = draftSelection[type].has(item.value); });
+            const selectAll = container.querySelector(`input[data-draft-select-all="${type}"]`);
+            const button = container.querySelector(`button[data-draft-delete-selected="${type}"]`);
+            const count = items.filter(item => item.checked).length;
+            if (selectAll) {
+                selectAll.checked = count > 0 && count === items.length;
+                selectAll.indeterminate = count > 0 && count < items.length;
+            }
+            if (button) {
+                button.disabled = count === 0;
+                button.textContent = type === 'active' ? `Move selected to bin (${count})` : `Delete selected permanently (${count})`;
+            }
+        });
+    });
+}
+
+function selectDraft(type, input) {
+    if (input.checked) draftSelection[type].add(input.value);
+    else draftSelection[type].delete(input.value);
+    updateDraftSelectionControls();
+}
+
+function selectAllDrafts(type, input) {
+    const container = input.closest('#draftsList, #draftView');
+    container.querySelectorAll(`input[data-draft-selection="${type}"]`).forEach(item => {
+        if (input.checked) draftSelection[type].add(item.value);
+        else draftSelection[type].delete(item.value);
+    });
+    updateDraftSelectionControls();
+}
+
 function loadDrafts() {
     const container = document.getElementById('draftsList'), view = document.getElementById('draftView');
     const drafts = JSON.parse(localStorage.getItem('p3_pos_drafts') || '[]');
     const deletedDrafts = JSON.parse(localStorage.getItem('p3_pos_deleted_drafts') || '[]');
+    [['active', drafts], ['deleted', deletedDrafts]].forEach(([type, items]) => {
+        const available = new Set(items.map(item => String(item.id)));
+        draftSelection[type].forEach(id => { if (!available.has(id)) draftSelection[type].delete(id); });
+    });
     const activeHtml = drafts.length ? drafts.map(d => {
         const client = escapeDraftHtml(d.client || 'Guest');
-        return `<div class="draft-item"><span><b>${client}</b> (${escapeDraftHtml(d.timestamp)})</span><div class="draft-actions"><button type="button" class="draft-action-button" onclick="restoreDraft(${d.id})" title="Load draft" aria-label="Load draft for ${client}"><i class="fas fa-folder-open action-icon-primary"></i></button><button type="button" class="draft-action-button" onclick="openView('statements', ${d.id})" title="View drafted receipt" aria-label="View drafted receipt for ${client}"><i class="fas fa-file-invoice-dollar action-icon-primary"></i></button><button type="button" class="draft-action-button" onclick="deleteDraft(${d.id})" title="Move draft to recycle bin" aria-label="Delete draft for ${client}"><i class="fas fa-trash action-icon-danger"></i></button></div></div>`;
+        return `<div class="draft-item"><label class="draft-select-item"><input type="checkbox" data-draft-selection="active" value="${escapeDraftHtml(d.id)}" onchange="selectDraft('active', this)" aria-label="Select draft for ${client}"><span><b>${client}</b> (${escapeDraftHtml(d.timestamp)})</span></label><div class="draft-actions"><button type="button" class="draft-action-button" onclick="restoreDraft(${d.id})" title="Load draft" aria-label="Load draft for ${client}"><i class="fas fa-folder-open action-icon-primary"></i></button><button type="button" class="draft-action-button" onclick="openView('statements', ${d.id})" title="View drafted receipt" aria-label="View drafted receipt for ${client}"><i class="fas fa-file-invoice-dollar action-icon-primary"></i></button><button type="button" class="draft-action-button" onclick="deleteDraft(${d.id})" title="Move draft to recycle bin" aria-label="Delete draft for ${client}"><i class="fas fa-trash action-icon-danger"></i></button></div></div>`;
     }).join('') : '<p class="paragraph-small">No drafts available.</p>';
     const deletedHtml = deletedDrafts.length ? deletedDrafts.map(d => {
         const client = escapeDraftHtml(d.client || 'Guest');
         const deletedAt = d.deletedAt ? escapeDraftHtml(new Date(d.deletedAt).toLocaleString()) : 'previously';
-        return `<div class="draft-item"><span><b>${client}</b> (${escapeDraftHtml(d.timestamp)})<br><small>Deleted ${deletedAt}</small></span><div class="draft-actions"><button type="button" class="draft-action-button" onclick="restoreDeletedDraft(${d.id})" title="Restore draft" aria-label="Restore draft for ${client}"><i class="fas fa-rotate-left action-icon-primary"></i></button><button type="button" class="draft-action-button" onclick="permanentlyDeleteDraft(${d.id})" title="Permanently delete draft" aria-label="Permanently delete draft for ${client}"><i class="fas fa-trash action-icon-danger"></i></button></div></div>`;
+        return `<div class="draft-item"><label class="draft-select-item"><input type="checkbox" data-draft-selection="deleted" value="${escapeDraftHtml(d.id)}" onchange="selectDraft('deleted', this)" aria-label="Select deleted draft for ${client}"><span><b>${client}</b> (${escapeDraftHtml(d.timestamp)})<br><small>Deleted ${deletedAt}</small></span></label><div class="draft-actions"><button type="button" class="draft-action-button" onclick="restoreDeletedDraft(${d.id})" title="Restore draft" aria-label="Restore draft for ${client}"><i class="fas fa-rotate-left action-icon-primary"></i></button><button type="button" class="draft-action-button" onclick="permanentlyDeleteDraft(${d.id})" title="Permanently delete draft" aria-label="Permanently delete draft for ${client}"><i class="fas fa-trash action-icon-danger"></i></button></div></div>`;
     }).join('') : '<p class="paragraph-small">Recycle bin is empty.</p>';
-    const html = `<h6 class="draft-list-heading">Saved Drafts</h6>${activeHtml}<h6 class="draft-list-heading">Recycle Bin</h6>${deletedHtml}`;
+    const controls = type => `<div class="draft-selection-toolbar"><label><input type="checkbox" data-draft-select-all="${type}" onchange="selectAllDrafts('${type}', this)" aria-label="Select all ${type === 'active' ? 'saved drafts' : 'recycle bin drafts'}"> Select all</label><button type="button" class="btn-danger" data-draft-delete-selected="${type}" onclick="deleteSelectedDrafts('${type}')" disabled></button></div>`;
+    const html = `<h6 class="draft-list-heading">Saved Drafts</h6>${drafts.length ? controls('active') : ''}${activeHtml}<h6 class="draft-list-heading">Recycle Bin</h6>${deletedDrafts.length ? controls('deleted') : ''}${deletedHtml}`;
     if (container) container.innerHTML = html;
     if (view) view.innerHTML = html;
+    updateDraftSelectionControls();
+}
+
+function deleteSelectedDrafts(type) {
+    const key = type === 'active' ? 'p3_pos_drafts' : 'p3_pos_deleted_drafts';
+    const items = JSON.parse(localStorage.getItem(key) || '[]');
+    const selected = items.filter(item => draftSelection[type].has(String(item.id)));
+    if (!selected.length) {
+        loadDrafts();
+        alert('The selected drafts are no longer available.');
+        return;
+    }
+    const message = type === 'active'
+        ? `Move ${selected.length} selected draft(s) to the recycle bin?`
+        : `Permanently delete ${selected.length} selected draft(s)? This cannot be undone.`;
+    if (!confirm(message)) return;
+
+    if (type === 'active') {
+        const deletedDrafts = JSON.parse(localStorage.getItem('p3_pos_deleted_drafts') || '[]');
+        const deletedAt = new Date().toISOString();
+        deletedDrafts.push(...selected.map(item => ({ ...item, deletedAt })));
+        localStorage.setItem('p3_pos_deleted_drafts', JSON.stringify(deletedDrafts));
+    }
+    localStorage.setItem(key, JSON.stringify(items.filter(item => !draftSelection[type].has(String(item.id)))));
+    draftSelection[type].clear();
+    loadDrafts();
 }
 
 function restoreDraft(id) {
@@ -2936,6 +3292,9 @@ window.shareToWhatsApp = function() {
 
 function openView(type, draftId) {
     const modal = document.getElementById('viewsModal');
+    if (type !== 'priceMgmt' && !inventoryPriceManager.leavePriceManagementEdit()) return;
+    modal.classList.toggle('price-management-fullscreen', type === 'priceMgmt');
+    modal.classList.toggle('customer-management-fullscreen', type === 'customers');
     document.querySelectorAll('#viewsModal .view-panel').forEach(v => v.classList.remove('active'));
     
     const panel = document.getElementById('view-' + type);

@@ -4,6 +4,7 @@ import {
     deleteUser,
     getAuth,
     onAuthStateChanged,
+    sendEmailVerification,
     sendPasswordResetEmail,
     signOut,
     updateProfile
@@ -57,7 +58,7 @@ function buildShareLink(member) {
 async function shareLink(member) {
     const link = buildShareLink(member);
     const business = businessName() || "the business";
-    const text = `Hi ${member.name}, sign in as a cashier for ${business}. Your owner will give you your password separately.`;
+    const text = `Hi ${member.name}, sign in as a cashier for ${business}. Verify your email before signing in; your owner will give you your password separately.`;
     if (navigator.share) {
         try {
             await navigator.share({ title: "Easy Receipt cashier sign-in", text, url: link });
@@ -162,18 +163,28 @@ async function createCashierAuth(email, password, name) {
     if (existing) await deleteApp(existing);
     const setupApp = initializeApp(auth.app.options, SETUP_APP_NAME);
     const setupAuth = getAuth(setupApp);
+    let createdUser = null;
     try {
         const credential = await createUserWithEmailAndPassword(setupAuth, email, password);
+        createdUser = credential.user;
         await updateProfile(credential.user, { displayName: name });
         return {
             uid: credential.user.uid,
-            rollback: () => deleteUser(credential.user).catch(() => {}),
+            sendVerification: () => sendEmailVerification(credential.user, {
+                url: new URL("email-verification.html?verified=1", import.meta.url).toString()
+            }),
+            rollback: () => deleteUser(credential.user),
             finish: async () => {
                 await signOut(setupAuth).catch(() => {});
                 await deleteApp(setupApp).catch(() => {});
             }
         };
     } catch (error) {
+        if (createdUser) {
+            await deleteUser(createdUser).catch(rollbackError => {
+                console.error("Could not roll back cashier account after setup failure.", rollbackError);
+            });
+        }
         await deleteApp(setupApp).catch(() => {});
         throw error;
     }
@@ -202,12 +213,24 @@ async function addCashier(event) {
         try {
             await setDoc(doc(db, "staff", created.uid), record);
         } catch (error) {
-            await created.rollback();
+            await created.rollback().catch(rollbackError => {
+                console.error("Could not remove cashier account after saving failed.", rollbackError);
+            });
             throw error;
+        }
+        try {
+            await created.sendVerification();
+        } catch (error) {
+            await created.finish();
+            byId("teamForm").reset();
+            setStatus(`Cashier ${name} was created, but the verification email could not be sent: ${error.message}. They can sign in and resend it.`, true);
+            await refresh();
+            if (shareAfter) await shareLink({ id: created.uid, ...record });
+            return;
         }
         await created.finish();
         byId("teamForm").reset();
-        setStatus(`Cashier ${name} created. Give them the password you set.`);
+        setStatus(`Cashier ${name} created. A verification email was sent; they must verify before signing in.`);
         await refresh();
         if (shareAfter) await shareLink({ id: created.uid, ...record });
     } catch (error) {
