@@ -902,7 +902,91 @@ class CustomerManager {
         } catch (error) {
             console.error('Could not share customer statement.', error);
             result.textContent = `Could not create statement link: ${error.message}`;
+            const localCopyButton = document.createElement('button');
+            localCopyButton.type = 'button';
+            localCopyButton.className = 'btn-secondary';
+            localCopyButton.textContent = 'Share local copy';
+            localCopyButton.onclick = () => this.shareLocalStatement(payload, localCopyButton, result);
+            result.append(localCopyButton);
         } finally { button.disabled = false; }
+    }
+    createLocalStatementHtml(payload) {
+        const escape = value => this.escapeHtml(value);
+        const money = value => `R ${(Number(value) || 0).toFixed(2)}`;
+        const entries = payload.entries.map(entry => {
+            const title = entry.type === 'payment' ? 'Payment' : (entry.store || 'Transaction');
+            const details = [
+                `<p>Date: ${escape(entry.timestamp || 'Not recorded')}</p>`,
+                entry.type === 'payment'
+                    ? `<p>Payment: ${money(entry.amount)} | Method: ${escape(entry.method || 'Not specified')}</p>${entry.remainingDue == null ? '' : `<p>Due after payment: ${money(entry.remainingDue)}</p>`}`
+                    : `${entry.reference ? `<p>Reference: ${escape(entry.reference)}</p>` : ''}<p>Total: ${money(entry.total)} | Paid: ${money(entry.paid)}</p>${(Array.isArray(entry.items) ? entry.items : []).map(item => `<p>${escape(item.name || 'Item')} × ${Number(item.qty) || 0} @ ${money(item.price)}</p>`).join('')}`
+            ].join('');
+            return `<section class="entry"><h2>${escape(title)}</h2>${details}</section>`;
+        }).join('');
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Customer statement</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; padding: 20px; font-family: system-ui, sans-serif; background: #f1f5f9; color: #0f172a; }
+        main { max-width: 860px; margin: auto; background: white; padding: 24px; border-radius: 12px; }
+        .entry { border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin: 12px 0; }
+        .entry p { margin: 5px 0; }
+        button { border: 0; border-radius: 8px; background: #f97316; color: white; padding: 10px 16px; font-weight: bold; cursor: pointer; }
+        @media print { button { display: none; } body { padding: 0; background: white; } }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>Customer statement</h1>
+        <p>Customer: ${escape(payload.customer)}</p>
+        <p>Shared: ${escape(payload.createdAt || '')}</p>
+        ${entries}
+        <button type="button" onclick="window.print()">Print statement</button>
+    </main>
+</body>
+</html>`;
+    }
+    async shareLocalStatement(payload, button, result) {
+        button.disabled = true;
+        try {
+            const html = this.createLocalStatementHtml(payload);
+            const name = String(payload.customer || 'customer').replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'customer';
+            const filename = `${name}-statement.html`;
+            if (typeof File === 'function' && typeof navigator.share === 'function') {
+                const file = new File([html], filename, { type: 'text/html' });
+                if (!navigator.canShare || navigator.canShare({ files: [file] })) {
+                    try {
+                        await navigator.share({ title: 'Customer statement', files: [file] });
+                        result.textContent = 'Local statement shared as a file.';
+                        return;
+                    } catch (error) {
+                        if (error.name === 'AbortError') {
+                            result.textContent = 'Local sharing cancelled.';
+                            return;
+                        }
+                        console.error('Could not share the local statement file.', error);
+                    }
+                }
+            }
+            const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+            result.textContent = 'Local statement downloaded. Share the downloaded HTML file with the recipient.';
+        } catch (error) {
+            console.error('Could not create a local statement copy.', error);
+            result.textContent = `Could not create a local statement copy: ${error.message}`;
+        } finally {
+            button.disabled = false;
+        }
     }
     updateBalance(id, button) {
         const customers = this.getSavedCustomers();

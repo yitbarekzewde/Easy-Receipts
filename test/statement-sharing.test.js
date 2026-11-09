@@ -15,10 +15,14 @@ for (const file of ['main.js', path.join('public', 'main.js')]) {
             { id: 1, store: 'Old store', timestamp: '2025-01-01T00:00:00Z', total: 10, paid: 5, items: [{ name: 'Tea', qty: 1, price: 10 }] },
             { id: 2, type: 'payment', timestamp: '2026-01-01T00:00:00Z', amount: 5, method: 'cash' }
         ];
-        const customer = { id: 99, name: 'Customer', email: 'private@example.test', history, depositPayments: [] };
+        const customer = { id: 99, name: 'Customer <script>', email: 'private@example.test', history, depositPayments: [] };
         let payload;
+        let downloadedBlob;
+        const elementsCreated = [];
         const result = {
-            textContent: '', children: [],
+            children: [],
+            get textContent() { return this._textContent || ''; },
+            set textContent(value) { this._textContent = value; this.children = []; },
             replaceChildren() { this.children = []; },
             append(...items) { this.children.push(...items); }
         };
@@ -27,13 +31,26 @@ for (const file of ['main.js', path.join('public', 'main.js')]) {
             querySelector: () => result,
             querySelectorAll: () => details.inputs
         };
+        const body = { appendChild(element) { element.parentElement = body; } };
         const context = vm.createContext({
             document: {
                 getElementById: id => elements[id] || null,
-                createElement: () => ({ appendChild() {}, setAttribute() {} })
+                body,
+                createElement: tagName => {
+                    const element = {
+                        tagName, appendChild() {}, setAttribute() {},
+                        click() { this.clicked = true; },
+                        remove() { this.removed = true; }
+                    };
+                    elementsCreated.push(element);
+                    return element;
+                }
             },
             window: { easyReceiptPublishStatement: async data => { payload = data; return 'https://example.test/statement#secret'; } },
-            navigator: {}, console, URL, encodeURIComponent
+            navigator: {}, console, URL: {
+                createObjectURL: blob => { downloadedBlob = blob; return 'blob:statement'; },
+                revokeObjectURL() {}
+            }, Blob, encodeURIComponent
         });
         const manager = vm.runInContext(`${source.slice(start, end)}\nObject.create(CustomerManager.prototype)`, context);
         manager.getSavedCustomers = () => [customer];
@@ -66,5 +83,18 @@ for (const file of ['main.js', path.join('public', 'main.js')]) {
         await manager.shareCustomerStatement(99, button, false);
         assert.match(result.textContent, /Sign in first/);
         assert.equal(button.disabled, false);
+        const localCopyButton = result.children[0];
+        assert.equal(localCopyButton.textContent, 'Share local copy');
+        await localCopyButton.onclick();
+        const download = elementsCreated.find(element => element.tagName === 'a');
+        assert.equal(download.download, 'customer-script-statement.html');
+        assert.equal(download.clicked, true);
+        assert.match(result.textContent, /downloaded/);
+        const localHtml = await downloadedBlob.text();
+        assert.match(localHtml, /Customer: Customer &lt;script&gt;/);
+        assert.doesNotMatch(localHtml, /Customer: Customer <script>/);
+        assert.match(localHtml, /Old store/);
+        assert.match(localHtml, /Tea/);
+        assert.doesNotMatch(localHtml, /private@example\.test/);
     });
 }
