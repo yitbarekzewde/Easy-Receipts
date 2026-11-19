@@ -70,6 +70,22 @@ test('Google sign-in preserves details from a matching manual profile', () => {
     assert.match(source, /\.\.\.\(keepManualProfile \? savedProfile : \{\}\)/);
 });
 
+test('email verification clients use the deployed Apps Script with manual OTP support', () => {
+    const endpoint = 'https://script.google.com/macros/s/AKfycby7yEM8uurq1uAogomMp_f6FYK4cYf5A2HV9YJSwiBvsbBrNNAVwbFbosbAis8SfuG4/exec';
+    for (const file of [
+        'main.js',
+        path.join('public', 'main.js'),
+        'login.html',
+        path.join('public', 'login.html'),
+        'credit-customers.js',
+        path.join('public', 'credit-customers.js')
+    ]) {
+        const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+        assert.ok(source.includes(endpoint), `${file} should use the deployed email verification endpoint`);
+        assert.ok(!source.includes('AKfycbxT3RdZts03TA0bWzUfD3NsKAaP-yASsKkElwyM8JUVt0cIZOmZZUK3iz1U76FhZ5uuzg'));
+    }
+});
+
 for (const file of ['main.js', path.join('public', 'main.js')]) {
     test(`Google sign-in notice uses responsive, accessible styling in ${file}`, () => {
         const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');

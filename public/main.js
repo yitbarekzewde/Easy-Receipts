@@ -1,4 +1,4 @@
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxT3RdZts03TA0bWzUfD3NsKAaP-yASsKkElwyM8JUVt0cIZOmZZUK3iz1U76FhZ5uuzg/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby7yEM8uurq1uAogomMp_f6FYK4cYf5A2HV9YJSwiBvsbBrNNAVwbFbosbAis8SfuG4/exec';
 const CUSTOMER_RECEIPT_APPS_SCRIPT_URL = APPS_SCRIPT_URL;
 const SUPPORT_ATTACHMENTS_APPS_SCRIPT_URL = APPS_SCRIPT_URL;
 let allowDeviceBackExit = false;
