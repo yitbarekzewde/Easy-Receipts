@@ -13,6 +13,13 @@ for (const file of ['index.html', path.join('public', 'index.html')]) {
     });
 }
 
+test('GitHub Pages root loads Firebase modules from the public directory', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+    for (const module of ['firebase-config', 'cloud-sync', 'team', 'chat']) {
+        assert.match(source, new RegExp(`<script type="module" src="public/${module}\\.js"><\\/script>`));
+    }
+});
+
 for (const file of ['reg-form.html', path.join('public', 'reg-form.html')]) {
     test(`manual registration sends an email verification link in ${file}`, () => {
         const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
