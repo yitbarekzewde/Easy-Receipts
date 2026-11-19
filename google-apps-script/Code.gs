@@ -1,6 +1,7 @@
 const EASY_RECEIPT_BACKEND_CONFIG = Object.freeze({
   FIREBASE_PROJECT_ID: 'easy-receipts-2',
   SUPPORT_EMAIL: 'yitbarek537zewde@gmail.com',
+  CONTACT_EMAIL: 'yitbarek.etc@gmail.com',
   OTP_TTL_SECONDS: 10 * 60,
   OTP_RESEND_SECONDS: 60,
   OTP_MAX_ATTEMPTS: 5,
@@ -45,6 +46,10 @@ function dispatch_(payload) {
       return sendOtp_(payload.email, 'credit-customer');
     case 'verifyCreditCustomerOTP':
       return verifyCreditCustomerOtp_(payload.email, payload.otp);
+    case 'sendManualProfileOTP':
+      return sendOtp_(payload.email, 'manual-profile');
+    case 'verifyManualProfileOTP':
+      return verifyManualProfileOtp_(payload.email, payload.otp);
     case 'sendResetOTP':
       return sendResetOtp_(payload.email);
     case 'resetPassword':
@@ -53,7 +58,10 @@ function dispatch_(payload) {
       return sendAuthNotification_(payload);
     case 'sendSupportEmail':
       return sendSupportEmail_(payload);
+    case 'sendDeveloperContact':
+      return sendDeveloperContact_(payload);
     case 'sendReceiptEmail':
+    case 'sendCustomerReceipt':
       return sendReceiptEmail_(payload);
     default:
       throw publicError_('Unknown action.');
@@ -75,14 +83,19 @@ function sendOtp_(emailValue, purpose) {
   const record = { digest: otpDigest_(purpose, email, otp, secret), attempts: 0 };
   const isReset = purpose === 'password-reset';
   const isCreditCustomer = purpose === 'credit-customer';
+  const isManualProfile = purpose === 'manual-profile';
   const subject = isReset
     ? 'Your Easy Receipt password reset code'
-    : isCreditCustomer ? 'Verify your email for a credit account' : 'Verify your Easy Receipt email';
+    : isCreditCustomer ? 'Verify your email for a credit account'
+      : isManualProfile ? 'Verify your Easy Receipt profile email'
+        : 'Verify your Easy Receipt email';
   const body = isReset
     ? 'Your Easy Receipt password reset code is ' + otp + '. It expires in 10 minutes. If you did not request this, you can ignore this email.'
     : isCreditCustomer
       ? 'Your email verification code for an Easy Receipt credit account is ' + otp + '. It expires in 10 minutes. If you did not request this, you can ignore this email.'
-      : 'Your Easy Receipt account has been created and is awaiting email verification. Your verification code is ' + otp + '. It expires in 10 minutes.';
+      : isManualProfile
+        ? 'Your Easy Receipt profile is awaiting email verification. Your verification code is ' + otp + '. It expires in 10 minutes. If you did not request this, you can ignore this email.'
+        : 'Your Easy Receipt account has been created and is awaiting email verification. Your verification code is ' + otp + '. It expires in 10 minutes.';
 
   ensureMailQuota_();
   MailApp.sendEmail({ to: email, subject: subject, body: body, name: 'Easy Receipt' });
@@ -210,6 +223,12 @@ function verifyCreditCustomerOtp_(emailValue, otpValue) {
   return { success: true, message: 'Customer email verified.' };
 }
 
+function verifyManualProfileOtp_(emailValue, otpValue) {
+  const email = normalizeEmail_(emailValue);
+  withValidOtp_('manual-profile', email, otpValue, function () {});
+  return { success: true, message: 'Profile email verified.' };
+}
+
 function resetPassword_(emailValue, otpValue, newPasswordValue) {
   const email = normalizeEmail_(emailValue);
   const newPassword = String(newPasswordValue || '');
@@ -279,7 +298,7 @@ function sendSupportEmail_(payload) {
 }
 
 function sendReceiptEmail_(payload) {
-  const recipient = normalizeEmail_(payload.toEmail || payload.email || payload.recipient);
+  const recipient = normalizeEmail_(payload.toEmail || payload.email || payload.recipient || payload.to_email);
   const subject = cleanText_(payload.subject, 160) || 'Your receipt from Easy Receipt';
   const message = cleanText_(payload.message, 4000) || 'Please find your receipt attached.';
   const storeName = cleanText_(payload.storeName, 160) || 'Easy Receipt';
@@ -298,8 +317,27 @@ function sendReceiptEmail_(payload) {
   return { success: true, message: 'Receipt sent.' };
 }
 
+function sendDeveloperContact_(payload) {
+  const senderEmail = normalizeEmail_(payload.from_email || payload.email);
+  const subject = cleanText_(payload.subject, 120) || 'Website contact message';
+  const message = cleanText_(payload.message, 10000);
+  if (!message) throw publicError_('Enter a message.');
+
+  enforceRateLimit_('developer-contact', senderEmail, 5, 3600);
+  ensureMailQuota_();
+  MailApp.sendEmail({
+    to: EASY_RECEIPT_BACKEND_CONFIG.CONTACT_EMAIL,
+    replyTo: senderEmail,
+    subject: subject,
+    body: 'From: ' + senderEmail + '\n\n' + message,
+    name: 'Website Contact Form'
+  });
+  return { success: true, message: 'Message sent.' };
+}
+
 function getAttachments_(payload, required) {
-  const fileData = String(payload.fileData || '').trim();
+  let fileData = String(payload.fileData || '').trim();
+  if (fileData.indexOf('base64,') !== -1) fileData = fileData.slice(fileData.indexOf('base64,') + 7);
   if (!fileData) {
     if (required) throw publicError_('The receipt attachment is missing.');
     return [];

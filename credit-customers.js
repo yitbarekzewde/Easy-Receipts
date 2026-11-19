@@ -1,8 +1,8 @@
 (() => {
     const STORAGE_KEY = 'p3_saved_customers';
     const SERVICE_FEE_RATE = 0.10;
-    const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwxD52Ibd3FcOREtqmCgPgoNcRmKzDlKQVBui9Ea0nRl75MEihx_Fwfvm8dpG_wn_tCtg/exec';
-    const CUSTOMER_RECEIPT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxnzc70hmMw9G8fIPRX1eiypQfglG5Yw9in3XLVPGDx02GOzk6ibMnR2y7M7WfeaDdpUA/exec';
+    const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxT3RdZts03TA0bWzUfD3NsKAaP-yASsKkElwyM8JUVt0cIZOmZZUK3iz1U76FhZ5uuzg/exec';
+    const CUSTOMER_RECEIPT_APPS_SCRIPT_URL = APPS_SCRIPT_URL;
     const byId = id => document.getElementById(id);
     const money = value => `R ${Number(value || 0).toFixed(2)}`;
     const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[char]);

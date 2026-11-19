@@ -1,19 +1,19 @@
 # Easy Receipt Apps Script Backend
 
-`Code.gs` handles the app's email OTP registration, email verification, password-reset OTP, Firebase password update, support email with an optional attachment, and receipt email with an attachment.
+`Code.gs` is the only Apps Script file to add to the deployment. Its single `doPost(e)` routes email OTP verification, password reset, sign-in notifications, support messages, developer contact messages, and receipt emails by the JSON `action` field.
 
 ## Install
 
 1. Create or open the Apps Script project that will serve this web app.
-2. Replace its `Code.gs` with the contents of this folder's `Code.gs`.
+2. Replace the project's contents with this folder's `Code.gs` and `appsscript.json`. Do not add the retired scripts from the subfolders; they also defined `doPost(e)` and are no longer needed.
 3. In **Project Settings**, show the `appsscript.json` manifest and replace it with this folder's manifest.
-4. Confirm `FIREBASE_PROJECT_ID` in `Code.gs` is `receipts-eccf0` and set `SUPPORT_EMAIL` to the inbox that should receive support requests.
+4. Confirm `FIREBASE_PROJECT_ID` in `Code.gs` is `easy-receipts-2`; set `SUPPORT_EMAIL` and `CONTACT_EMAIL` to the desired inboxes.
 5. In Google Cloud IAM, grant the account that deploys/runs the script the Firebase Authentication Admin role on the Firebase project. The Identity Toolkit API must be enabled. This permission is needed to set `emailVerified` and reset a user's password.
 6. In the Apps Script editor, run `authorizeServices()` once and approve the requested Mail, URL Fetch, and Identity Toolkit permissions.
-7. Deploy as a **Web app**, executing as **User deploying**, with access set to **Anyone**. Deploy a new version and copy the `/exec` URL.
-8. If the deployed URL differs from the current one, replace `APPS_SCRIPT_URL` in both `main.js` files and the endpoint constants in both registration, verification, and forgot-password pages.
+7. Deploy as a **Web app**, executing as **User deploying**, with access set to **Anyone**. Edit the existing deployment and select a new version to keep its `/exec` URL unchanged.
+8. If the deployment URL changes, replace the existing `/exec` URL in both `main.js` files, both login and forgot-password pages, both credit-customer scripts, and the contact form pages. Receipt and support URL constants in `main.js` already alias `APPS_SCRIPT_URL`.
 
-The script sends verification/reset codes by email and expires them after 10 minutes. It limits incorrect OTP attempts and rate-limits outgoing mail. Support and receipt payloads use the `sendSupportEmail` and `sendReceiptEmail` actions, respectively. Attachments are limited to 10 MB and common image/document types.
+The script sends registration, manual-profile verification, and password-reset codes by email and expires them after 10 minutes. It limits incorrect OTP attempts and rate-limits outgoing mail. Requests use the `sendOTP`, `verifyOTP`, `sendManualProfileOTP`, `verifyManualProfileOTP`, `sendResetOTP`, `resetPassword`, `notifyAuthEvent`, `sendSupportEmail`, `sendDeveloperContact`, and `sendReceiptEmail` actions. Receipt and support attachments are limited to 10 MB and common image/document types.
 
 ## Quick check
 

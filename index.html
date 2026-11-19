@@ -468,7 +468,14 @@
                         <label class="small-label" for="regEmail">Shop Contact Email</label>
                         <input type="email" id="regEmail" placeholder="name@example.com"
                             title="Shop contact email address" required>
-                        <button type="submit" class="button-save-profile">Save Profile Details</button>
+                        <div id="manualProfileVerification" hidden>
+                            <label class="small-label" for="regVerificationCode">Email verification code</label>
+                            <input type="text" id="regVerificationCode" inputmode="numeric" autocomplete="one-time-code"
+                                pattern="[0-9]{6}" maxlength="6" placeholder="Enter the 6-digit code" disabled>
+                            <button type="button" class="btn-secondary" onclick="authManager.changeManualProfileDetails()">Change name or email</button>
+                        </div>
+                        <p id="manualProfileVerificationStatus" class="account-status" role="status" aria-live="polite"></p>
+                        <button type="submit" class="button-save-profile">Send verification code</button>
                     </form>
                     <hr class="section-divider">
                     <p class="paragraph-small">Want a username &amp; password account instead?</p>
@@ -859,13 +866,26 @@
             try {
                 const payload = JSON.parse(atob(response.credential.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
                 if (!window.easyReceiptSignInWithGoogle) throw new Error('Firebase sign-in is not ready.');
+                const existingProfile = authManager.getStoredProfile();
+                const isMatchingManualProfile = existingProfile?.provider === 'manual'
+                    && String(existingProfile.email || '').trim().toLowerCase() === String(payload.email || '').trim().toLowerCase();
+                if (existingProfile?.provider === 'manual' && !isMatchingManualProfile) {
+                    throw new Error('Choose the Google account that matches your verified manual profile email.');
+                }
                 await window.easyReceiptSignInWithGoogle(response.credential);
-                authManager.saveProfile({ name: payload.name || 'Google User', email: payload.email || '', picture: payload.picture || null, provider: 'google' });
+                authManager.saveProfile({
+                    ...(isMatchingManualProfile ? existingProfile : {}),
+                    name: isMatchingManualProfile ? existingProfile.name : payload.name || 'Google User',
+                    email: payload.email || '',
+                    picture: (isMatchingManualProfile && existingProfile.picture) || payload.picture || null,
+                    provider: 'google',
+                    emailVerified: true
+                });
                 document.getElementById('profile-setup-view').style.display = 'none';
                 document.getElementById('profile-active-view').classList.remove('hidden');
                 closeViewsModal();
             } catch (error) {
-                alert('Google sign-in failed. Please try again.');
+                alert(error.message || 'Google sign-in failed. Please try again.');
             }
         };
     </script>

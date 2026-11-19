@@ -713,12 +713,22 @@ onAuthStateChanged(auth, user => {
         }
         resetDeviceIfAccountChanged(user.uid);
         const displayLabel = (staff && staff.name) || user.displayName || user.email || "Cashier";
+        let savedProfile = null;
+        try {
+            savedProfile = JSON.parse(localStorage.getItem("p3_user_profile") || "null");
+        } catch (error) {
+            console.error("Could not read the saved profile while signing in.", error);
+        }
+        const keepManualProfile = savedProfile?.provider === "manual"
+            && String(savedProfile.email || "").trim().toLowerCase() === String(user.email || "").trim().toLowerCase();
         localStorage.setItem("p3_user_profile", JSON.stringify({
-            name: displayLabel,
+            ...(keepManualProfile ? savedProfile : {}),
+            name: keepManualProfile ? savedProfile.name : displayLabel,
             email: user.email || "",
+            picture: (keepManualProfile && savedProfile.picture) || user.photoURL || null,
             provider: user.providerData[0]?.providerId || "firebase",
             emailVerified: user.emailVerified,
-            role: staff ? "Cashier" : undefined
+            role: staff ? "Cashier" : keepManualProfile ? savedProfile.role : undefined
         }));
         window.authManager?.setEmailVerificationState(user.emailVerified);
         const displayName = document.getElementById("user-display-name");

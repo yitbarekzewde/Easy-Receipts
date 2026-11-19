@@ -12,3 +12,72 @@ for (const file of ['index.html', path.join('public', 'index.html')]) {
         assert.match(source, /id="emailVerificationStatus"/);
     });
 }
+
+for (const file of ['reg-form.html', path.join('public', 'reg-form.html')]) {
+    test(`manual registration sends an email verification link in ${file}`, () => {
+        const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+        assert.match(source, /createUserWithEmailAndPassword/);
+        assert.match(source, /sendEmailVerification\(credential\.user/);
+        assert.match(source, /await signOut\(auth\)/);
+    });
+}
+
+for (const file of ['login.html', path.join('public', 'login.html')]) {
+    test(`Google can be linked to a verified manual account in ${file}`, () => {
+        const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+        assert.match(source, /handleLoginGoogleCredential/);
+        assert.match(source, /auth\/account-exists-with-different-credential/);
+        assert.match(source, /linkWithCredential\(user, GoogleAuthProvider\.credential\(token\)\)/);
+        assert.match(source, /Verify your email before linking Google/);
+    });
+}
+
+for (const file of ['index.html', path.join('public', 'index.html')]) {
+    test(`manual in-app profile is saved only after email verification in ${file}`, () => {
+        const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+        assert.match(source, /id="manualProfileVerification" hidden/);
+        assert.match(source, /id="regVerificationCode"[^>]*disabled/);
+        assert.match(source, /Choose the Google account that matches your verified manual profile email/);
+    });
+}
+
+for (const file of ['main.js', path.join('public', 'main.js')]) {
+    test(`profile setup requires successful OTP verification before saving in ${file}`, () => {
+        const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+        const verifyStart = source.indexOf('async verifyManualProfileEmail()');
+        const saveStart = source.indexOf('this.saveProfile({', verifyStart);
+        assert.notEqual(verifyStart, -1);
+        assert.notEqual(saveStart, -1);
+        assert.ok(source.indexOf('if (!response.ok || !result.success)', verifyStart) < saveStart);
+        assert.match(source, /action: 'sendManualProfileOTP'/);
+        assert.match(source, /action: 'verifyManualProfileOTP'/);
+        assert.match(source, /saved\.provider === 'manual'.*?showManualGoogleSignInNotice\(\)/s);
+        assert.match(source, /this\.openAuthModal\('google'\)/);
+    });
+}
+
+test('Google sign-in preserves details from a matching manual profile', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'public', 'cloud-sync.js'), 'utf8');
+    assert.match(source, /const keepManualProfile = savedProfile\?\.provider === "manual"/);
+    assert.match(source, /savedProfile\.email.*?user\.email/s);
+    assert.match(source, /\.\.\.\(keepManualProfile \? savedProfile : \{\}\)/);
+});
+
+for (const file of ['main.js', path.join('public', 'main.js')]) {
+    test(`Google sign-in notice uses responsive, accessible styling in ${file}`, () => {
+        const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+        assert.match(source, /notice\.className = 'manual-google-notice'/);
+        assert.match(source, /manual-google-notice__connect/);
+        assert.match(source, /manual-google-notice__dismiss/);
+    });
+}
+
+for (const file of ['styles.css', path.join('public', 'styles.css')]) {
+    test(`Google sign-in notice is styled for mobile and dark mode in ${file}`, () => {
+        const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+        assert.match(source, /\.manual-google-notice\s*\{/);
+        assert.match(source, /@media \(max-width: 380px\)/);
+        assert.match(source, /prefers-reduced-motion: reduce/);
+        assert.match(source, /body\[data-theme="dark"\] \.manual-google-notice/);
+    });
+}

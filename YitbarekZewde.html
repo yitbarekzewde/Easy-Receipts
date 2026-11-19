@@ -318,7 +318,7 @@
     </div>
 
     <script>
-        const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby7MqUF9hjiaADgKaxGVolG1wFwLQ8EgGKJgFqcV7IV0Nl83HQwowf0sHy4-rYzNqpcQw/exec';
+        const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxT3RdZts03TA0bWzUfD3NsKAaP-yASsKkElwyM8JUVt0cIZOmZZUK3iz1U76FhZ5uuzg/exec';
 
         // --- Profile Image Fallback Logic ---
         const img = document.querySelector('.profile-image img');
@@ -362,7 +362,7 @@
                 const response = await fetch(APPS_SCRIPT_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify({ from_email: fromEmail, message: messageText })
+                    body: JSON.stringify({ action: 'sendDeveloperContact', from_email: fromEmail, message: messageText })
                 });
                 const result = await response.json();
                 if (!response.ok || !result.success) {

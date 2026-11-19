@@ -769,6 +769,24 @@ body {
 .account-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: auto; min-height: 42px; margin: 0; padding: 10px 15px; font-size: 12px; }
 .account-status { min-height: 18px; margin-top: 8px; color: #15803d; font-size: 12px; }
 .account-status-error { color: #dc2626; }
+.manual-google-notice { position: fixed; top: max(16px, env(safe-area-inset-top)); left: 50%; z-index: 1000001; display: flex; align-items: center; gap: 14px; width: min(560px, calc(100vw - 32px)); padding: 16px; border: 1px solid #dbe5f0; border-top: 3px solid #4285f4; border-radius: 14px; background: #fff; color: #172033; box-shadow: 0 16px 42px rgba(15, 23, 42, .2); transform: translateX(-50%); animation: manualGoogleNoticeIn .22s ease-out both; }
+.manual-google-notice__icon { display: grid; flex: 0 0 42px; width: 42px; height: 42px; place-items: center; border: 1px solid #e2e8f0; border-radius: 12px; background: #f8fafc; color: #4285f4; font-size: 19px; }
+.manual-google-notice__content { display: grid; flex: 1; min-width: 0; gap: 4px; }
+.manual-google-notice__title { color: #172033; font-size: 14px; font-weight: 750; line-height: 1.3; }
+.manual-google-notice__message { color: #64748b; font-size: 12px; line-height: 1.5; }
+.manual-google-notice__actions { display: flex; flex: 0 0 auto; align-items: center; gap: 7px; }
+.manual-google-notice__connect { width: auto; min-height: 38px; margin: 0; padding: 9px 12px; border: 0; border-radius: 8px; background: #1a73e8; color: #fff; font: 700 12px/1 system-ui, sans-serif; white-space: nowrap; cursor: pointer; transition: background .16s ease, transform .16s ease; }
+.manual-google-notice__connect:hover { background: #155fc0; transform: translateY(-1px); }
+.manual-google-notice__dismiss { display: grid; width: 34px; height: 34px; margin: 0; padding: 0; place-items: center; border: 0; border-radius: 8px; background: transparent; color: #64748b; font-size: 15px; cursor: pointer; }
+.manual-google-notice__dismiss:hover { background: #f1f5f9; color: #172033; }
+.manual-google-notice button:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
+@keyframes manualGoogleNoticeIn { from { opacity: 0; transform: translate(-50%, -8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+body[data-theme="dark"] .manual-google-notice { border-color: #334155; border-top-color: #60a5fa; background: #111c2e; color: #e2e8f0; }
+body[data-theme="dark"] .manual-google-notice__icon { border-color: #334155; background: #172337; }
+body[data-theme="dark"] .manual-google-notice__title { color: #f1f5f9; }
+body[data-theme="dark"] .manual-google-notice__message { color: #a7b3c5; }
+body[data-theme="dark"] .manual-google-notice__dismiss { color: #94a3b8; }
+body[data-theme="dark"] .manual-google-notice__dismiss:hover { background: #26364d; color: #f1f5f9; }
 .account-settings-intro { margin: 0 0 15px; padding: 14px 16px; border: 1px solid #dbeafe; border-radius: 12px; background: #eff6ff; }
 .account-settings-intro h4 { margin-bottom: 5px; color: var(--dark); font-size: 14px; }
 .account-settings-intro p { color: #475569; font-size: 12px; line-height: 1.5; }
@@ -790,6 +808,21 @@ body[data-theme="dark"] input, body[data-theme="dark"] textarea, body[data-theme
 body[data-theme="dark"] .account-form-grid input[readonly] { background: #1e293b; color: #94a3b8; }
 body[data-theme="dark"] .draft-item, body[data-theme="dark"] .stock-form-card, body[data-theme="dark"] .stock-audit-panel { border-color: #334155; background: #172337; color: #e2e8f0; }
 body[data-theme="dark"] .close-modal { color: #cbd5e1; }
+@media (max-width: 560px) {
+    .manual-google-notice { top: max(10px, env(safe-area-inset-top)); width: calc(100vw - 20px); gap: 10px; padding: 12px; border-radius: 12px; }
+    .manual-google-notice__icon { flex-basis: 36px; width: 36px; height: 36px; }
+    .manual-google-notice__actions { gap: 4px; }
+    .manual-google-notice__connect { min-height: 36px; padding: 8px 9px; font-size: 11px; }
+}
+@media (max-width: 380px) {
+    .manual-google-notice { flex-wrap: wrap; }
+    .manual-google-notice__content { flex-basis: calc(100% - 50px); }
+    .manual-google-notice__actions { width: 100%; justify-content: flex-end; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .manual-google-notice { animation: none; }
+    .manual-google-notice__connect { transition: none; }
+}
 @media (max-width: 560px) {
     .account-modal-heading { flex-direction: column; gap: 2px; }
     .account-local-badge { font-size: 10px; }

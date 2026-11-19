@@ -1,6 +1,6 @@
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwxD52Ibd3FcOREtqmCgPgoNcRmKzDlKQVBui9Ea0nRl75MEihx_Fwfvm8dpG_wn_tCtg/exec';
-const CUSTOMER_RECEIPT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxnzc70hmMw9G8fIPRX1eiypQfglG5Yw9in3XLVPGDx02GOzk6ibMnR2y7M7WfeaDdpUA/exec';
-const SUPPORT_ATTACHMENTS_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwojlEIYRaWg59eAwlR_3czYVDN1lrJCw8kcj13sJC4z1etfE3qj4mm-yXEMapOGWmorw/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxT3RdZts03TA0bWzUfD3NsKAaP-yASsKkElwyM8JUVt0cIZOmZZUK3iz1U76FhZ5uuzg/exec';
+const CUSTOMER_RECEIPT_APPS_SCRIPT_URL = APPS_SCRIPT_URL;
+const SUPPORT_ATTACHMENTS_APPS_SCRIPT_URL = APPS_SCRIPT_URL;
 let allowDeviceBackExit = false;
 // A receipt keeps this placeholder until Finish, so the daily counter only advances for finished receipts.
 const RECEIPT_REF_PENDING = 'Pending';
@@ -54,6 +54,8 @@ class AuthManager {
     constructor() {
         this.currentUser = null;
         this.pendingSetupPic = null;
+        this.pendingManualProfile = null;
+        this.manualProfileRequestInProgress = false;
         this.settings = this.getDefaultSettings();
     }
     getStoredProfile() { return JSON.parse(localStorage.getItem('p3_user_profile') || 'null'); }
@@ -336,6 +338,7 @@ class AuthManager {
             this.saveProfile(saved);
             document.getElementById('profile-setup-view').style.display = 'none';
             document.getElementById('profile-active-view').classList.remove('hidden');
+            if (saved.provider === 'manual') this.showManualGoogleSignInNotice();
         } else { 
             this.currentUser = null; 
             document.getElementById('user-display-name').innerText = "Guest Cashier"; 
@@ -361,6 +364,45 @@ class AuthManager {
         const panel = document.getElementById(`tab-${tabName}`);
         if (tab) tab.classList.add('active');
         if (panel) panel.classList.add('active');
+    }
+    showManualGoogleSignInNotice() {
+        document.querySelector('.manual-google-notice')?.remove();
+        const notice = document.createElement('div');
+        notice.className = 'manual-google-notice';
+        notice.setAttribute('role', 'status');
+        notice.setAttribute('aria-label', 'Google sign-in suggestion');
+        const icon = document.createElement('span');
+        icon.className = 'manual-google-notice__icon';
+        icon.setAttribute('aria-hidden', 'true');
+        icon.innerHTML = '<i class="fab fa-google"></i>';
+        const content = document.createElement('div');
+        content.className = 'manual-google-notice__content';
+        const title = document.createElement('strong');
+        title.className = 'manual-google-notice__title';
+        title.textContent = 'Make signing in easier';
+        const message = document.createElement('span');
+        message.className = 'manual-google-notice__message';
+        message.textContent = 'Connect Google sign-in with the same email for easier access. Google verifies your sign-in email.';
+        content.append(title, message);
+        const actions = document.createElement('div');
+        actions.className = 'manual-google-notice__actions';
+        const connect = document.createElement('button');
+        connect.type = 'button';
+        connect.className = 'manual-google-notice__connect';
+        connect.textContent = 'Connect Google';
+        connect.addEventListener('click', () => {
+            notice.remove();
+            this.openAuthModal('google');
+        });
+        const dismiss = document.createElement('button');
+        dismiss.type = 'button';
+        dismiss.className = 'manual-google-notice__dismiss';
+        dismiss.innerHTML = '<i class="fas fa-times" aria-hidden="true"></i><span class="visually-hidden">Dismiss</span>';
+        dismiss.setAttribute('aria-label', 'Dismiss Google sign-in notice');
+        dismiss.addEventListener('click', () => notice.remove());
+        actions.append(connect, dismiss);
+        notice.append(icon, content, actions);
+        document.body.appendChild(notice);
     }
     applyAvatarEverywhere(src) {
         this.setAvatar('nav-avatar-img', 'nav-avatar-icon', src);
@@ -429,20 +471,141 @@ class AuthManager {
         this.updateAuthControls();
         cartManager.updateUI();
     }
-    saveManualProfile(e) {
+    async saveManualProfile(e) {
         e.preventDefault();
         const nameInput = document.getElementById('regName');
         const emailInput = document.getElementById('regEmail');
         if (!nameInput || !emailInput) return alert('Manual setup form is unavailable. Please reload the page.');
         const name = nameInput.value.trim(), email = emailInput.value.trim();
         if (!name || !email) return alert('Please fill in both name and email.');
-        this.saveProfile({ name, email, picture: this.pendingSetupPic || null, provider: 'manual', role: 'Owner' });
-        this.pendingSetupPic = null;
-        document.getElementById('profileForm').reset();
-        document.getElementById('profile-setup-view').style.display = 'none';
-        document.getElementById('profile-active-view').classList.remove('hidden');
-        openView('profile');
-        cartManager.updateUI();
+        if (this.manualProfileRequestInProgress) return;
+        if (this.pendingManualProfile && this.pendingManualProfile.email !== email.toLowerCase()) {
+            this.resetManualProfileVerification();
+        }
+        if (this.pendingManualProfile) return this.verifyManualProfileEmail();
+
+        const submitButton = document.querySelector('#profileForm button[type="submit"]');
+        const status = document.getElementById('manualProfileVerificationStatus');
+        this.manualProfileRequestInProgress = true;
+        if (submitButton) {
+            submitButton.disabled = true;
+            submitButton.textContent = 'Sending verification code...';
+        }
+        if (status) {
+            status.textContent = '';
+            status.classList.remove('account-status-error');
+        }
+        try {
+            const response = await fetch(APPS_SCRIPT_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({ action: 'sendManualProfileOTP', email })
+            });
+            const result = await response.json();
+            if (!response.ok || !result.success) throw new Error(result.message || 'Could not send the verification code.');
+            this.pendingManualProfile = { name, email: email.toLowerCase(), picture: this.pendingSetupPic || null };
+            const verificationPanel = document.getElementById('manualProfileVerification');
+            verificationPanel.hidden = false;
+            const codeInput = document.getElementById('regVerificationCode');
+            codeInput.disabled = false;
+            codeInput.required = true;
+            nameInput.readOnly = true;
+            emailInput.readOnly = true;
+            if (submitButton) submitButton.textContent = 'Verify email and save profile';
+            if (status) status.textContent = 'Verification code sent. Enter the code from your email to save your profile.';
+        } catch (error) {
+            if (status) {
+                status.textContent = error.message || 'Could not send the verification code. Please try again.';
+                status.classList.add('account-status-error');
+            } else {
+                alert(error.message || 'Could not send the verification code. Please try again.');
+            }
+        } finally {
+            this.manualProfileRequestInProgress = false;
+            if (submitButton) submitButton.disabled = false;
+        }
+    }
+    async verifyManualProfileEmail() {
+        if (!this.pendingManualProfile || this.manualProfileRequestInProgress) return;
+        const code = document.getElementById('regVerificationCode').value.trim();
+        const submitButton = document.querySelector('#profileForm button[type="submit"]');
+        const status = document.getElementById('manualProfileVerificationStatus');
+        this.manualProfileRequestInProgress = true;
+        if (submitButton) {
+            submitButton.disabled = true;
+            submitButton.textContent = 'Verifying email...';
+        }
+        if (status) {
+            status.textContent = '';
+            status.classList.remove('account-status-error');
+        }
+        try {
+            const response = await fetch(APPS_SCRIPT_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({
+                    action: 'verifyManualProfileOTP',
+                    email: this.pendingManualProfile.email,
+                    otp: code
+                })
+            });
+            const result = await response.json();
+            if (!response.ok || !result.success) throw new Error(result.message || 'Email verification failed.');
+            const profile = this.pendingManualProfile;
+            this.saveProfile({
+                name: profile.name,
+                email: profile.email,
+                picture: profile.picture,
+                provider: 'manual',
+                emailVerified: true,
+                role: 'Owner'
+            });
+            this.pendingManualProfile = null;
+            this.pendingSetupPic = null;
+            document.getElementById('profileForm').reset();
+            document.getElementById('manualProfileVerification').hidden = true;
+            document.getElementById('manualProfileVerificationStatus').textContent = '';
+            document.getElementById('profile-setup-view').style.display = 'none';
+            document.getElementById('profile-active-view').classList.remove('hidden');
+            openView('profile');
+            cartManager.updateUI();
+        } catch (error) {
+            if (status) {
+                status.textContent = error.message || 'Email verification failed. Check the code and try again.';
+                status.classList.add('account-status-error');
+            }
+        } finally {
+            this.manualProfileRequestInProgress = false;
+            if (submitButton && this.pendingManualProfile) {
+                submitButton.disabled = false;
+                submitButton.textContent = 'Verify email and save profile';
+            }
+        }
+    }
+    resetManualProfileVerification() {
+        this.pendingManualProfile = null;
+        const nameInput = document.getElementById('regName');
+        const emailInput = document.getElementById('regEmail');
+        if (nameInput) nameInput.readOnly = false;
+        if (emailInput) emailInput.readOnly = false;
+        const verification = document.getElementById('manualProfileVerification');
+        if (verification) verification.hidden = true;
+        const codeInput = document.getElementById('regVerificationCode');
+        if (codeInput) {
+            codeInput.value = '';
+            codeInput.disabled = true;
+            codeInput.required = false;
+        }
+        const status = document.getElementById('manualProfileVerificationStatus');
+        if (status) {
+            status.textContent = '';
+            status.classList.remove('account-status-error');
+        }
+        const submitButton = document.querySelector('#profileForm button[type="submit"]');
+        if (submitButton) submitButton.textContent = 'Send verification code';
+    }
+    changeManualProfileDetails() {
+        this.resetManualProfileVerification();
     }
     closeAuthModal() {
         const screen = document.getElementById('profileCustomerHistoryScreen');
@@ -451,7 +614,12 @@ class AuthManager {
     }
     openAuthModal(section = 'profile') {
         document.getElementById('authModal').style.display = 'flex';
-        if (this.currentUser) {
+        if (this.currentUser && section === 'google' && this.currentUser.provider === 'manual') {
+            document.getElementById('profile-active-view').classList.add('hidden');
+            document.getElementById('profile-setup-view').style.display = 'block';
+            document.getElementById('profile-setup-view').classList.remove('hidden');
+            this.switchTab('google');
+        } else if (this.currentUser) {
             document.getElementById('profile-setup-view').style.display = 'none';
             document.getElementById('profile-active-view').classList.remove('hidden');
             this.showAccountTab(section === 'settings' ? 'settings' : 'profile');

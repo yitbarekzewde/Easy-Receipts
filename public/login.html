@@ -122,6 +122,7 @@
             text-decoration: underline;
         }
     </style>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="notification.js"></script>
 </head>
 <body>
@@ -147,6 +148,13 @@
             </div>
             <button type="submit">Login</button>
         </form>
+        <div id="google-login-options">
+            <p>Or sign in with Google</p>
+            <div id="g_id_onload"
+                data-client_id="290599167080-9bslph3ri9p0v4kbhu2qlnja85sncvcd.apps.googleusercontent.com"
+                data-callback="handleLoginGoogleCredential" data-auto_prompt="false"></div>
+            <div class="g_id_signin" data-type="standard" data-size="large"></div>
+        </div>
         <a class="switch-link" onclick="window.location.href='reg-form.html'">Don't have an account? Register</a>
         <a class="forgatepass" onclick="window.location.href='forgot-password.html'">Forgot Password?</a>
     </div>
@@ -165,10 +173,12 @@
     </script>
     <script type="module">
         import { auth, db } from './firebase-config.js';
-        import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js';
+        import { GoogleAuthProvider, linkWithCredential, onAuthStateChanged, signInWithCredential, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js';
         import { doc, getDoc } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js';
 
-        const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwxD52Ibd3FcOREtqmCgPgoNcRmKzDlKQVBui9Ea0nRl75MEihx_Fwfvm8dpG_wn_tCtg/exec';
+        const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxT3RdZts03TA0bWzUfD3NsKAaP-yASsKkElwyM8JUVt0cIZOmZZUK3iz1U76FhZ5uuzg/exec';
+        const PENDING_GOOGLE_TOKEN = 'pendingGoogleLinkToken';
+        const PENDING_GOOGLE_EMAIL = 'pendingGoogleLinkEmail';
         let loginAttemptInProgress = false;
 
         async function getActiveStaff(user) {
@@ -187,6 +197,7 @@
             const business = cashierParams.get('business');
             if (business) document.querySelector('.login-form h1').textContent = business;
             document.querySelector('.switch-link').style.display = 'none';
+            document.getElementById('google-login-options').hidden = true;
             document.querySelector('input[name="password"]').focus();
         }
 
@@ -240,28 +251,29 @@
                     window.location.href = 'email-verification.html';
                     return;
                 }
-                var staffRecord = await getActiveStaff(credential.user);
+                const user = await linkPendingGoogleAccount(credential.user);
+                var staffRecord = await getActiveStaff(user);
                 if (staffRecord) {
                     localStorage.setItem('isLoggedIn', 'true');
                     localStorage.setItem('p3_user_profile', JSON.stringify({
-                        name: staffRecord.name || credential.user.displayName || credential.user.email,
-                        email: credential.user.email,
-                        provider: 'email',
+                        name: staffRecord.name || user.displayName || user.email,
+                        email: user.email,
+                        provider: user.providerData.some(provider => provider.providerId === 'google.com') ? 'google' : 'email',
                         role: 'Cashier'
                     }));
                     window.location.href = 'sales.html';
                     return;
                 }
                 localStorage.setItem('isLoggedIn', 'true');
-                localStorage.setItem('currentUser', JSON.stringify({ uid: credential.user.uid, username: credential.user.displayName || credential.user.email, email: credential.user.email }));
+                localStorage.setItem('currentUser', JSON.stringify({ uid: user.uid, username: user.displayName || user.email, email: user.email }));
                 localStorage.setItem('p3_user_profile', JSON.stringify({
-                    name: credential.user.displayName || credential.user.email,
-                    email: credential.user.email,
-                    provider: 'email'
+                    name: user.displayName || user.email,
+                    email: user.email,
+                    provider: user.providerData.some(provider => provider.providerId === 'google.com') ? 'google' : 'email'
                 }));
-                logActivity(credential.user.displayName || credential.user.email, 'Logged In', 'Signed in successfully', credential.user.uid, credential.user.email);
+                logActivity(user.displayName || user.email, 'Logged In', 'Signed in successfully', user.uid, user.email);
                 await notifyAuthEvent('login-success', {
-                    idToken: await credential.user.getIdToken(),
+                    idToken: await user.getIdToken(),
                     device: await getDeviceDetails()
                 });
                 window.location.href = '../index.html';
@@ -269,7 +281,101 @@
                 loginAttemptInProgress = false;
                 logActivity(email, 'Failed Login', 'Incorrect email or password', '', email);
                 void notifyAuthEvent('login-failed', { email: email });
-                alert('Incorrect email or password. Please try again.');
+                const invalidPassword = ['auth/invalid-credential', 'auth/wrong-password', 'auth/user-not-found'].includes(error.code);
+                const linkFailed = sessionStorage.getItem(PENDING_GOOGLE_TOKEN) && !invalidPassword;
+                alert(linkFailed ? (error.message || 'Could not link Google. Sign in with Google again to retry.') : 'Incorrect email or password. Please try again.');
+            }
+        }
+
+        window.handleLoginGoogleCredential = async response => {
+            if (loginAttemptInProgress) return;
+            loginAttemptInProgress = true;
+            try {
+                let user;
+                try {
+                    const credential = await signInWithCredential(auth, GoogleAuthProvider.credential(response.credential));
+                    user = credential.user;
+                } catch (error) {
+                    if (error.code !== 'auth/account-exists-with-different-credential') throw error;
+                    const email = error.customData?.email || googleCredentialEmail(response.credential);
+                    sessionStorage.setItem(PENDING_GOOGLE_TOKEN, response.credential);
+                    sessionStorage.setItem(PENDING_GOOGLE_EMAIL, String(email || '').toLowerCase());
+                    const emailInput = document.querySelector('input[name="username"]');
+                    if (emailInput && email) emailInput.value = email;
+                    alert('An email-and-password account already uses this Google email. Sign in with that password to link Google. Verify your email first if prompted.');
+                    return;
+                }
+                await completeGoogleLogin(user);
+            } catch (error) {
+                alert(error.message || 'Google sign-in failed. Please try again.');
+            } finally {
+                loginAttemptInProgress = false;
+            }
+        };
+
+        async function linkPendingGoogleAccount(user) {
+            const token = sessionStorage.getItem(PENDING_GOOGLE_TOKEN);
+            if (!token) return user;
+            const pendingEmail = sessionStorage.getItem(PENDING_GOOGLE_EMAIL);
+            if (!user.emailVerified) {
+                await signOut(auth);
+                throw new Error('Verify your email before linking Google to this account.');
+            }
+            if (!pendingEmail || pendingEmail !== String(user.email || '').toLowerCase()) {
+                await signOut(auth);
+                throw new Error('Sign in with the email-and-password account matching the Google email.');
+            }
+            if (user.providerData.some(provider => provider.providerId === 'google.com')) {
+                sessionStorage.removeItem(PENDING_GOOGLE_TOKEN);
+                sessionStorage.removeItem(PENDING_GOOGLE_EMAIL);
+                return user;
+            }
+            try {
+                const result = await linkWithCredential(user, GoogleAuthProvider.credential(token));
+                sessionStorage.removeItem(PENDING_GOOGLE_TOKEN);
+                sessionStorage.removeItem(PENDING_GOOGLE_EMAIL);
+                return result.user;
+            } catch (error) {
+                await signOut(auth);
+                throw error;
+            }
+        }
+
+        async function completeGoogleLogin(initialUser) {
+            const user = await linkPendingGoogleAccount(initialUser);
+            const staffRecord = await getActiveStaff(user);
+            if (staffRecord) {
+                localStorage.setItem('isLoggedIn', 'true');
+                localStorage.setItem('p3_user_profile', JSON.stringify({
+                    name: staffRecord.name || user.displayName || user.email,
+                    email: user.email,
+                    provider: 'google',
+                    role: 'Cashier'
+                }));
+                window.location.href = 'sales.html';
+                return;
+            }
+            localStorage.setItem('isLoggedIn', 'true');
+            localStorage.setItem('currentUser', JSON.stringify({ uid: user.uid, username: user.displayName || user.email, email: user.email }));
+            localStorage.setItem('p3_user_profile', JSON.stringify({
+                name: user.displayName || user.email,
+                email: user.email,
+                provider: 'google'
+            }));
+            logActivity(user.displayName || user.email, 'Logged In', 'Signed in successfully', user.uid, user.email);
+            await notifyAuthEvent('login-success', {
+                idToken: await user.getIdToken(),
+                device: await getDeviceDetails()
+            });
+            window.location.href = '../index.html';
+        }
+
+        function googleCredentialEmail(token) {
+            try {
+                const encoded = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+                return JSON.parse(atob(encoded)).email || '';
+            } catch (error) {
+                return '';
             }
         }
 

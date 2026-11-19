@@ -200,7 +200,7 @@
 
     <footer class="site-footer"><span>© 2026 Easy Receipt</span><a href="../index.html">Return to Easy Receipt</a><span>Built by Yitbarek Zewde</span></footer>
     <script>
-        const CONTACT_ENDPOINT = 'https://script.google.com/macros/s/AKfycby7MqUF9hjiaADgKaxGVolG1wFwLQ8EgGKJgFqcV7IV0Nl83HQwowf0sHy4-rYzNqpcQw/exec';
+        const CONTACT_ENDPOINT = 'https://script.google.com/macros/s/AKfycbxT3RdZts03TA0bWzUfD3NsKAaP-yASsKkElwyM8JUVt0cIZOmZZUK3iz1U76FhZ5uuzg/exec';
         const form = document.getElementById('developerContactForm');
         const sendButton = document.getElementById('sendEmailBtn');
         const status = document.getElementById('contactStatus');
@@ -216,7 +216,7 @@
                 const response = await fetch(CONTACT_ENDPOINT, {
                     method: 'POST',
                     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify({ from_email: document.getElementById('senderEmail').value.trim(), subject: document.getElementById('messageSubject').value.trim(), message: document.getElementById('emailMessage').value.trim() })
+                    body: JSON.stringify({ action: 'sendDeveloperContact', from_email: document.getElementById('senderEmail').value.trim(), subject: document.getElementById('messageSubject').value.trim(), message: document.getElementById('emailMessage').value.trim() })
                 });
                 const result = await response.json();
                 if (!response.ok || !result.success) throw new Error(result.message || 'Message could not be sent. Please try again.');
